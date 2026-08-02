@@ -28,6 +28,9 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 
+import com.example.data.dao.SyncQueueDao
+import com.example.data.entity.SyncQueueEntity
+
 @Database(
     entities = [
         ItemEntity::class,
@@ -41,9 +44,10 @@ import kotlinx.coroutines.launch
         SupplierPayableEntity::class,
         SupplierPaymentEntity::class,
         CashAccountEntity::class,
-        CashMutationEntity::class
+        CashMutationEntity::class,
+        SyncQueueEntity::class
     ],
-    version = 6,
+    version = 7,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -55,6 +59,7 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun customerReceivableDao(): CustomerReceivableDao
     abstract fun supplierPayableDao(): SupplierPayableDao
     abstract fun cashDao(): CashDao
+    abstract fun syncQueueDao(): SyncQueueDao
 
     companion object {
         @Volatile

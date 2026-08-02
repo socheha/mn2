@@ -299,6 +299,178 @@ fun ScanReceiptDialog(
                         }
                     }
 
+                    // --- CAMERA & PHOTO SCANNER SECTION (PROMINENT AT TOP) ---
+                    item {
+                        Card(
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(14.dp),
+                            colors = CardDefaults.cardColors(
+                                containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.35f)
+                            ),
+                            elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
+                        ) {
+                            Column(
+                                modifier = Modifier.padding(14.dp),
+                                horizontalAlignment = Alignment.CenterHorizontally
+                            ) {
+                                Text(
+                                    text = "Ambil / Pilih Foto Nota Penjualan",
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.primary
+                                )
+                                Spacer(modifier = Modifier.height(8.dp))
+
+                                // Image Preview Frame
+                                if (selectedImageUri != null || selectedBitmap != null) {
+                                    Box(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .height(160.dp)
+                                            .clip(RoundedCornerShape(12.dp))
+                                            .background(Color.Black.copy(alpha = 0.05f)),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        if (selectedBitmap != null) {
+                                            Image(
+                                                bitmap = selectedBitmap!!.asImageBitmap(),
+                                                contentDescription = "Foto Kamera Nota",
+                                                contentScale = ContentScale.Crop,
+                                                modifier = Modifier.fillMaxSize()
+                                            )
+                                        } else if (selectedImageUri != null) {
+                                            AsyncImage(
+                                                model = selectedImageUri,
+                                                contentDescription = "Foto Galeri Nota",
+                                                contentScale = ContentScale.Crop,
+                                                modifier = Modifier.fillMaxSize()
+                                            )
+                                        }
+
+                                        Surface(
+                                            color = Color.Black.copy(alpha = 0.65f),
+                                            shape = RoundedCornerShape(6.dp),
+                                            modifier = Modifier
+                                                .align(Alignment.TopEnd)
+                                                .padding(8.dp)
+                                        ) {
+                                            Text(
+                                                text = "Foto Terpilih",
+                                                color = Color.White,
+                                                fontSize = 10.sp,
+                                                fontWeight = FontWeight.Bold,
+                                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                            )
+                                        }
+                                    }
+                                    Spacer(modifier = Modifier.height(10.dp))
+                                }
+
+                                // Buttons for Camera / Gallery
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                                ) {
+                                    // Buka Kamera Card
+                                    Card(
+                                        onClick = { showCameraXPreview = true },
+                                        modifier = Modifier
+                                            .weight(1f)
+                                            .testTag("btn_buka_kamera_nota"),
+                                        shape = RoundedCornerShape(12.dp),
+                                        colors = CardDefaults.cardColors(
+                                            containerColor = MaterialTheme.colorScheme.primary
+                                        ),
+                                        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+                                    ) {
+                                        Row(
+                                            modifier = Modifier.padding(vertical = 10.dp, horizontal = 10.dp),
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.Center
+                                        ) {
+                                            Surface(
+                                                shape = CircleShape,
+                                                color = Color.White.copy(alpha = 0.25f),
+                                                modifier = Modifier.size(34.dp)
+                                            ) {
+                                                Box(contentAlignment = Alignment.Center) {
+                                                    Icon(
+                                                        imageVector = Icons.Default.CameraAlt,
+                                                        contentDescription = "Kamera",
+                                                        tint = Color.White,
+                                                        modifier = Modifier.size(20.dp)
+                                                    )
+                                                }
+                                            }
+                                            Spacer(modifier = Modifier.width(8.dp))
+                                            Column {
+                                                Text(
+                                                    text = if (selectedBitmap == null && selectedImageUri == null) "Buka Kamera" else "Foto Ulang",
+                                                    fontWeight = FontWeight.Bold,
+                                                    fontSize = 12.sp,
+                                                    color = Color.White
+                                                )
+                                                Text(
+                                                    text = "Scan Real-time",
+                                                    fontSize = 10.sp,
+                                                    color = Color.White.copy(alpha = 0.85f)
+                                                )
+                                            }
+                                        }
+                                    }
+
+                                    // Pilih Galeri Card
+                                    Card(
+                                        onClick = { photoPickerLauncher.launch("image/*") },
+                                        modifier = Modifier
+                                            .weight(1f)
+                                            .testTag("btn_pilih_galeri_nota"),
+                                        shape = RoundedCornerShape(12.dp),
+                                        colors = CardDefaults.cardColors(
+                                            containerColor = MaterialTheme.colorScheme.primaryContainer
+                                        ),
+                                        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+                                    ) {
+                                        Row(
+                                            modifier = Modifier.padding(vertical = 10.dp, horizontal = 10.dp),
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.Center
+                                        ) {
+                                            Surface(
+                                                shape = CircleShape,
+                                                color = MaterialTheme.colorScheme.primary.copy(alpha = 0.15f),
+                                                modifier = Modifier.size(34.dp)
+                                            ) {
+                                                Box(contentAlignment = Alignment.Center) {
+                                                    Icon(
+                                                        imageVector = Icons.Default.Photo,
+                                                        contentDescription = "Galeri",
+                                                        tint = MaterialTheme.colorScheme.primary,
+                                                        modifier = Modifier.size(20.dp)
+                                                    )
+                                                }
+                                            }
+                                            Spacer(modifier = Modifier.width(8.dp))
+                                            Column {
+                                                Text(
+                                                    text = "Pilih Galeri",
+                                                    fontWeight = FontWeight.Bold,
+                                                    fontSize = 12.sp,
+                                                    color = MaterialTheme.colorScheme.onPrimaryContainer
+                                                )
+                                                Text(
+                                                    text = "Upload Foto",
+                                                    fontSize = 10.sp,
+                                                    color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.75f)
+                                                )
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+
                     // Metadata fields (Supplier, No Faktur)
                     if (selectedImageUri != null || selectedBitmap != null) {
                         item {
@@ -489,7 +661,8 @@ fun ScanReceiptDialog(
                                             OutlinedTextField(
                                                 value = if (item.jumlah == 0) "" else item.jumlah.toString(),
                                                 onValueChange = { newJmlStr ->
-                                                    val newJml = if (newJmlStr.isBlank()) 0 else (newJmlStr.toIntOrNull() ?: 0)
+                                                    val filtered = newJmlStr.filter { char -> char.isDigit() }
+                                                    val newJml = if (filtered.isBlank()) 0 else (filtered.toIntOrNull() ?: 0)
                                                     val newTot = newJml * item.hargaSatuan
                                                     scannedItems[index] = item.copy(jumlah = newJml, totalHarga = newTot)
                                                 },
@@ -501,7 +674,8 @@ fun ScanReceiptDialog(
                                             OutlinedTextField(
                                                 value = if (item.hargaSatuan > 0) item.hargaSatuan.toInt().toString() else "",
                                                 onValueChange = { newHrgStr ->
-                                                    val newHrg = newHrgStr.toDoubleOrNull() ?: 0.0
+                                                    val filtered = newHrgStr.filter { char -> char.isDigit() }
+                                                    val newHrg = filtered.toDoubleOrNull() ?: 0.0
                                                     val newTot = item.jumlah * newHrg
                                                     scannedItems[index] = item.copy(hargaSatuan = newHrg, totalHarga = newTot)
                                                 },
@@ -581,121 +755,6 @@ fun ScanReceiptDialog(
                                         fontSize = 12.sp,
                                         lineHeight = 16.sp
                                     )
-                                }
-                            }
-                        }
-                    }
-
-                    // --- CAMERA & PHOTO SCANNER SECTION AT THE BOTTOM ---
-                    item {
-                        Card(
-                            modifier = Modifier.fillMaxWidth(),
-                            shape = RoundedCornerShape(14.dp),
-                            colors = CardDefaults.cardColors(
-                                containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.35f)
-                            ),
-                            elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
-                        ) {
-                            Column(
-                                modifier = Modifier.padding(14.dp),
-                                horizontalAlignment = Alignment.CenterHorizontally
-                            ) {
-                                Text(
-                                    text = "Ambil / Pilih Foto Nota",
-                                    fontSize = 12.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    color = MaterialTheme.colorScheme.primary
-                                )
-                                Spacer(modifier = Modifier.height(8.dp))
-
-                                // Image Preview Frame
-                                if (selectedImageUri != null || selectedBitmap != null) {
-                                    Box(
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .height(160.dp)
-                                            .clip(RoundedCornerShape(12.dp))
-                                            .background(Color.Black.copy(alpha = 0.05f)),
-                                        contentAlignment = Alignment.Center
-                                    ) {
-                                        if (selectedBitmap != null) {
-                                            Image(
-                                                bitmap = selectedBitmap!!.asImageBitmap(),
-                                                contentDescription = "Foto Kamera Nota",
-                                                contentScale = ContentScale.Crop,
-                                                modifier = Modifier.fillMaxSize()
-                                            )
-                                        } else if (selectedImageUri != null) {
-                                            AsyncImage(
-                                                model = selectedImageUri,
-                                                contentDescription = "Foto Galeri Nota",
-                                                contentScale = ContentScale.Crop,
-                                                modifier = Modifier.fillMaxSize()
-                                            )
-                                        }
-
-                                        Surface(
-                                            color = Color.Black.copy(alpha = 0.65f),
-                                            shape = RoundedCornerShape(6.dp),
-                                            modifier = Modifier
-                                                .align(Alignment.TopEnd)
-                                                .padding(8.dp)
-                                        ) {
-                                            Text(
-                                                text = "Foto Terpilih",
-                                                color = Color.White,
-                                                fontSize = 10.sp,
-                                                fontWeight = FontWeight.Bold,
-                                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
-                                            )
-                                        }
-                                    }
-                                    Spacer(modifier = Modifier.height(10.dp))
-                                }
-
-                                // Buttons for Camera / Gallery
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                                ) {
-                                    Button(
-                                        onClick = { showCameraXPreview = true },
-                                        colors = ButtonDefaults.buttonColors(
-                                            containerColor = MaterialTheme.colorScheme.primary
-                                        ),
-                                        shape = RoundedCornerShape(10.dp),
-                                        modifier = Modifier.weight(1f).testTag("btn_buka_kamera_nota")
-                                    ) {
-                                        Icon(
-                                            imageVector = Icons.Default.CameraAlt,
-                                            contentDescription = null,
-                                            modifier = Modifier.size(18.dp)
-                                        )
-                                        Spacer(modifier = Modifier.width(6.dp))
-                                        Text(
-                                            text = if (selectedBitmap == null && selectedImageUri == null) "Buka Kamera Real-time" else "Foto Ulang",
-                                            fontSize = 12.sp,
-                                            fontWeight = FontWeight.Bold
-                                        )
-                                    }
-
-                                    OutlinedButton(
-                                        onClick = { photoPickerLauncher.launch("image/*") },
-                                        shape = RoundedCornerShape(10.dp),
-                                        modifier = Modifier.weight(1f).testTag("btn_pilih_galeri_nota")
-                                    ) {
-                                        Icon(
-                                            imageVector = Icons.Default.Photo,
-                                            contentDescription = null,
-                                            modifier = Modifier.size(18.dp)
-                                        )
-                                        Spacer(modifier = Modifier.width(6.dp))
-                                        Text(
-                                            text = "Pilih Galeri",
-                                            fontSize = 12.sp,
-                                            fontWeight = FontWeight.Bold
-                                        )
-                                    }
                                 }
                             }
                         }
@@ -796,10 +855,15 @@ fun SearchItemDatabaseDialog(
     onSelectItem: (ItemEntity) -> Unit,
     onUnlinkItem: () -> Unit
 ) {
-    var searchQuery by remember { mutableStateOf(initialQueryText) }
+    val cleanedInitial = remember(initialQueryText) { ItemMatcher.cleanOcrQuery(initialQueryText) }
+    var searchQuery by remember { mutableStateOf(cleanedInitial) }
 
     val filteredItems = remember(searchQuery, databaseItems) {
         ItemMatcher.searchItems(searchQuery, databaseItems)
+    }
+
+    val displayList = remember(filteredItems, databaseItems) {
+        if (filteredItems.isNotEmpty()) filteredItems else databaseItems
     }
 
     AlertDialog(
@@ -829,19 +893,39 @@ fun SearchItemDatabaseDialog(
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .heightIn(max = 420.dp)
+                    .heightIn(max = 440.dp)
             ) {
-                Text(
-                    text = "Kata kunci/tulisan draft nota: \"$initialQueryText\"",
-                    fontSize = 11.sp,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(bottom = 6.dp)
-                )
+                Surface(
+                    shape = RoundedCornerShape(8.dp),
+                    color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f),
+                    modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp)
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Text(
+                            text = "📦 Database Stok: ${databaseItems.size} Barang Tersedia",
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onPrimaryContainer
+                        )
+                        if (searchQuery.isNotBlank()) {
+                            TextButton(
+                                onClick = { searchQuery = "" },
+                                contentPadding = PaddingValues(0.dp)
+                            ) {
+                                Text("Tampilkan Semua", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                            }
+                        }
+                    }
+                }
 
                 OutlinedTextField(
                     value = searchQuery,
                     onValueChange = { searchQuery = it },
-                    label = { Text("Search / Ketik Nama/Kode Barang", fontSize = 11.sp) },
+                    label = { Text("Ketik Nama / Kode Barang", fontSize = 11.sp) },
                     placeholder = { Text("Misal: kabel, totolink, 609...", fontSize = 11.sp) },
                     leadingIcon = {
                         Icon(Icons.Default.Search, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
@@ -866,10 +950,14 @@ fun SearchItemDatabaseDialog(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Text(
-                        text = "Ditemukan ${filteredItems.size} barang cocok",
+                        text = if (filteredItems.isNotEmpty()) {
+                            "Ditemukan ${filteredItems.size} barang cocok"
+                        } else {
+                            "Menampilkan seluruh ${databaseItems.size} barang database"
+                        },
                         fontSize = 11.sp,
                         fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.primary
+                        color = if (filteredItems.isNotEmpty()) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.secondary
                     )
 
                     TextButton(
@@ -882,7 +970,7 @@ fun SearchItemDatabaseDialog(
 
                 Spacer(modifier = Modifier.height(6.dp))
 
-                if (filteredItems.isEmpty()) {
+                if (displayList.isEmpty()) {
                     Box(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -891,7 +979,7 @@ fun SearchItemDatabaseDialog(
                         contentAlignment = Alignment.Center
                     ) {
                         Text(
-                            text = if (searchQuery.isBlank()) "Ketik kata kunci untuk mencari barang..." else "Tidak ditemukan barang cocok dengan '$searchQuery'",
+                            text = "Belum ada barang terdaftar di Database Stok.",
                             fontSize = 12.sp,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             modifier = Modifier.padding(16.dp)
@@ -904,7 +992,7 @@ fun SearchItemDatabaseDialog(
                             .weight(1f),
                         verticalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        items(filteredItems, key = { it.id }) { dbItem ->
+                        items(displayList, key = { it.id }) { dbItem ->
                             Card(
                                 shape = RoundedCornerShape(10.dp),
                                 colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f)),

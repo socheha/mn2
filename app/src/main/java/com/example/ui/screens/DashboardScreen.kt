@@ -60,7 +60,21 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.material.icons.filled.Warning
+import androidx.compose.material.icons.filled.BarChart
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.OutlinedButton
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
+import com.example.data.entity.ItemEntity
 import com.example.ui.MainViewModel
+import com.example.ui.MonthlySalesData
 import com.example.util.Formatters
 
 @Composable
@@ -71,6 +85,7 @@ fun DashboardScreen(
     val totalTypes by viewModel.totalItemTypes.collectAsStateWithLifecycle()
     val totalStock by viewModel.totalStockCount.collectAsStateWithLifecycle()
     val todayRev by viewModel.todayRevenue.collectAsStateWithLifecycle()
+    val todayTxCount by viewModel.todayTransactionCount.collectAsStateWithLifecycle()
     val weeklyRev by viewModel.weeklyRevenue.collectAsStateWithLifecycle()
     val monthlyRev by viewModel.monthlyRevenue.collectAsStateWithLifecycle()
     val yearlyRev by viewModel.yearlyRevenue.collectAsStateWithLifecycle()
@@ -85,6 +100,10 @@ fun DashboardScreen(
     val totalCash by viewModel.totalCashBalance.collectAsStateWithLifecycle()
     val kasTunai by viewModel.kasTunaiBalance.collectAsStateWithLifecycle()
     val kasBank by viewModel.kasBankBalance.collectAsStateWithLifecycle()
+
+    val criticalLowStockList by viewModel.criticalLowStockItems.collectAsStateWithLifecycle()
+    val monthlySalesTrends by viewModel.monthlySalesTrends.collectAsStateWithLifecycle()
+    var showLowStockDialog by remember { mutableStateOf(false) }
 
     Scaffold(
         floatingActionButton = {
@@ -222,6 +241,290 @@ fun DashboardScreen(
                             contentDescription = null,
                             tint = Color.White
                         )
+                    }
+                }
+            }
+
+            // Notifikasi Peringatan Stok Menipis (< 5) Banner
+            if (criticalLowStockList.isNotEmpty()) {
+                item {
+                    Card(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { showLowStockDialog = true },
+                        shape = RoundedCornerShape(16.dp),
+                        colors = CardDefaults.cardColors(containerColor = Color(0xFFFFF3E0)),
+                        border = BorderStroke(1.dp, Color(0xFFFFB74D)),
+                        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+                    ) {
+                        Column(modifier = Modifier.padding(14.dp)) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    modifier = Modifier.weight(1f)
+                                ) {
+                                    Box(
+                                        modifier = Modifier
+                                            .size(36.dp)
+                                            .clip(CircleShape)
+                                            .background(Color(0xFFE65100)),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.Warning,
+                                            contentDescription = "Peringatan Stok",
+                                            tint = Color.White,
+                                            modifier = Modifier.size(20.dp)
+                                        )
+                                    }
+                                    Spacer(modifier = Modifier.width(10.dp))
+                                    Column {
+                                        Text(
+                                            text = "Peringatan Stok Menipis! (${criticalLowStockList.size} Barang < 5)",
+                                            style = MaterialTheme.typography.titleSmall,
+                                            fontWeight = FontWeight.Bold,
+                                            color = Color(0xFFBF360C)
+                                        )
+                                        Text(
+                                            text = "Ada barang yang stoknya di bawah ambang batas (kurang dari 5).",
+                                            fontSize = 11.sp,
+                                            color = Color(0xFFE65100)
+                                        )
+                                    }
+                                }
+
+                                Button(
+                                    onClick = { showLowStockDialog = true },
+                                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFE65100)),
+                                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
+                                    shape = RoundedCornerShape(8.dp)
+                                ) {
+                                    Text("Detail", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                }
+                            }
+
+                            Spacer(modifier = Modifier.height(8.dp))
+
+                            // List ringkas barang stok menipis
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                criticalLowStockList.take(3).forEach { item ->
+                                    Surface(
+                                        shape = RoundedCornerShape(6.dp),
+                                        color = Color(0xFFFFE0B2),
+                                        modifier = Modifier.weight(1f)
+                                    ) {
+                                        Row(
+                                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.SpaceBetween
+                                        ) {
+                                            Text(
+                                                text = item.namaBarang,
+                                                fontSize = 11.sp,
+                                                fontWeight = FontWeight.SemiBold,
+                                                maxLines = 1,
+                                                overflow = TextOverflow.Ellipsis,
+                                                modifier = Modifier.weight(1f),
+                                                color = Color(0xFF4E2600)
+                                            )
+                                            Text(
+                                                text = "${item.stok}",
+                                                fontSize = 11.sp,
+                                                fontWeight = FontWeight.Bold,
+                                                color = Color(0xFFD84315)
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Grafik Batang Tren Penjualan Bulanan
+            item {
+                MonthlySalesBarChart(
+                    monthlyData = monthlySalesTrends
+                )
+            }
+
+            // Dasbor Ringkasan Harian (Hari Ini) Section
+            item {
+                Card(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable { onNavigateToMenu("rekap") },
+                    shape = RoundedCornerShape(16.dp),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                    elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+                ) {
+                    Column(modifier = Modifier.padding(16.dp)) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(36.dp)
+                                        .clip(CircleShape)
+                                        .background(Color(0xFFE8F5E9)),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.Assessment,
+                                        contentDescription = null,
+                                        tint = Color(0xFF2E7D32),
+                                        modifier = Modifier.size(20.dp)
+                                    )
+                                }
+                                Spacer(modifier = Modifier.width(10.dp))
+                                Column {
+                                    Text(
+                                        text = "Dasbor Ringkasan Harian",
+                                        style = MaterialTheme.typography.titleMedium,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                    Text(
+                                        text = "Performa penjualan & keuntungan hari ini",
+                                        fontSize = 11.sp,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                            }
+
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Text(
+                                    text = "Detail Rekap",
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.primary
+                                )
+                                Icon(
+                                    imageVector = Icons.Default.ArrowForward,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier.size(16.dp)
+                                )
+                            }
+                        }
+
+                        Spacer(modifier = Modifier.height(14.dp))
+
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
+                            // Total Penjualan Hari Ini
+                            Surface(
+                                shape = RoundedCornerShape(12.dp),
+                                color = Color(0xFFE8F5E9),
+                                modifier = Modifier.weight(1f)
+                            ) {
+                                Column(modifier = Modifier.padding(12.dp)) {
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        Icon(
+                                            imageVector = Icons.Default.PointOfSale,
+                                            contentDescription = null,
+                                            tint = Color(0xFF2E7D32),
+                                            modifier = Modifier.size(16.dp)
+                                        )
+                                        Spacer(modifier = Modifier.width(4.dp))
+                                        Text(
+                                            text = "Total Penjualan",
+                                            fontSize = 11.sp,
+                                            fontWeight = FontWeight.SemiBold,
+                                            color = Color(0xFF1B5E20)
+                                        )
+                                    }
+                                    Spacer(modifier = Modifier.height(6.dp))
+                                    Text(
+                                        text = Formatters.formatRupiah(todayRev),
+                                        fontSize = 15.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = Color(0xFF1B5E20)
+                                    )
+                                }
+                            }
+
+                            // Jumlah Transaksi Hari Ini
+                            Surface(
+                                shape = RoundedCornerShape(12.dp),
+                                color = Color(0xFFE3F2FD),
+                                modifier = Modifier.weight(1f)
+                            ) {
+                                Column(modifier = Modifier.padding(12.dp)) {
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        Icon(
+                                            imageVector = Icons.Default.ReceiptLong,
+                                            contentDescription = null,
+                                            tint = Color(0xFF1565C0),
+                                            modifier = Modifier.size(16.dp)
+                                        )
+                                        Spacer(modifier = Modifier.width(4.dp))
+                                        Text(
+                                            text = "Jumlah Transaksi",
+                                            fontSize = 11.sp,
+                                            fontWeight = FontWeight.SemiBold,
+                                            color = Color(0xFF0D47A1)
+                                        )
+                                    }
+                                    Spacer(modifier = Modifier.height(6.dp))
+                                    Text(
+                                        text = "$todayTxCount Transaksi",
+                                        fontSize = 15.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = Color(0xFF0D47A1)
+                                    )
+                                }
+                            }
+                        }
+
+                        Spacer(modifier = Modifier.height(10.dp))
+
+                        // Keuntungan Bersih Hari Ini
+                        Surface(
+                            shape = RoundedCornerShape(12.dp),
+                            color = Color(0xFFDCFCE7),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(12.dp),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Icon(
+                                        imageVector = Icons.Default.Payments,
+                                        contentDescription = null,
+                                        tint = Color(0xFF15803D),
+                                        modifier = Modifier.size(18.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Text(
+                                        text = "Keuntungan Bersih Hari Ini:",
+                                        fontSize = 13.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = Color(0xFF14532D)
+                                    )
+                                }
+                                Text(
+                                    text = Formatters.formatRupiah(todayProfit),
+                                    fontSize = 16.sp,
+                                    fontWeight = FontWeight.ExtraBold,
+                                    color = Color(0xFF14532D)
+                                )
+                            }
+                        }
                     }
                 }
             }
@@ -629,7 +932,287 @@ fun DashboardScreen(
             }
         }
     }
+
+    if (showLowStockDialog) {
+            AlertDialog(
+                onDismissRequest = { showLowStockDialog = false },
+                icon = {
+                    Icon(
+                        imageVector = Icons.Default.Warning,
+                        contentDescription = null,
+                        tint = Color(0xFFE65100),
+                        modifier = Modifier.size(32.dp)
+                    )
+                },
+                title = {
+                    Text(
+                        text = "Daftar Barang Stok Menipis (< 5)",
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 16.sp,
+                        textAlign = TextAlign.Center
+                    )
+                },
+                text = {
+                    Column(modifier = Modifier.fillMaxWidth()) {
+                        Text(
+                            text = "Segera lakukan restok/pembelian barang untuk daftar berikut:",
+                            fontSize = 12.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        Spacer(modifier = Modifier.height(10.dp))
+                        LazyColumn(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .heightIn(max = 280.dp),
+                            verticalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            items(criticalLowStockList) { item ->
+                                Card(
+                                    shape = RoundedCornerShape(8.dp),
+                                    colors = CardDefaults.cardColors(containerColor = Color(0xFFFFF3E0))
+                                ) {
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(10.dp),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Column(modifier = Modifier.weight(1f)) {
+                                            Text(
+                                                text = item.namaBarang,
+                                                fontWeight = FontWeight.Bold,
+                                                fontSize = 13.sp
+                                            )
+                                            Text(
+                                                text = "Kode: ${item.kodeBarang} • Modal: ${Formatters.formatRupiah(item.hargaModal)}",
+                                                fontSize = 11.sp,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                                            )
+                                        }
+                                        Surface(
+                                            shape = RoundedCornerShape(6.dp),
+                                            color = Color(0xFFD84315)
+                                        ) {
+                                            Text(
+                                                text = "Stok: ${item.stok}",
+                                                fontSize = 12.sp,
+                                                fontWeight = FontWeight.Bold,
+                                                color = Color.White,
+                                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                },
+                confirmButton = {
+                    Button(
+                        onClick = {
+                            showLowStockDialog = false
+                            onNavigateToMenu("stok_toko")
+                        },
+                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFE65100))
+                    ) {
+                        Text("Kelola Stok Toko")
+                    }
+                },
+                dismissButton = {
+                    OutlinedButton(onClick = { showLowStockDialog = false }) {
+                        Text("Tutup")
+                    }
+                }
+            )
+        }
+    }
 }
+
+@Composable
+fun MonthlySalesBarChart(
+    monthlyData: List<MonthlySalesData>,
+    modifier: Modifier = Modifier
+) {
+    Card(
+        modifier = modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(16.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+    ) {
+        Column(modifier = Modifier.padding(16.dp)) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Box(
+                        modifier = Modifier
+                            .size(36.dp)
+                            .clip(CircleShape)
+                            .background(MaterialTheme.colorScheme.primaryContainer),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.BarChart,
+                            contentDescription = "Grafik Tren Penjualan",
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(20.dp)
+                        )
+                    }
+                    Spacer(modifier = Modifier.width(10.dp))
+                    Column {
+                        Text(
+                            text = "Grafik Tren Penjualan Bulanan",
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold
+                        )
+                        Text(
+                            text = "Grafik batang performa omset & profit 6 bulan terakhir",
+                            fontSize = 11.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(14.dp))
+
+            // Legend
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.End,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Box(
+                        modifier = Modifier
+                            .size(10.dp)
+                            .clip(CircleShape)
+                            .background(MaterialTheme.colorScheme.primary)
+                    )
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text("Omset Penjualan", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+                Spacer(modifier = Modifier.width(12.dp))
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Box(
+                        modifier = Modifier
+                            .size(10.dp)
+                            .clip(CircleShape)
+                            .background(Color(0xFF2E7D32))
+                    )
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text("Keuntungan", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+            }
+
+            Spacer(modifier = Modifier.height(12.dp))
+
+            val maxSales = monthlyData.maxOfOrNull { it.totalSales }?.coerceAtLeast(1000.0) ?: 1000.0
+            var selectedMonthIndex by remember { mutableStateOf<Int?>(null) }
+
+            // Bar Chart Area
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(160.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.Bottom
+            ) {
+                monthlyData.forEachIndexed { index, item ->
+                    val salesRatio = (item.totalSales / maxSales).toFloat().coerceIn(0.05f, 1f)
+                    val profitRatio = (item.totalProfit / maxSales).toFloat().coerceIn(0.02f, 1f)
+                    val isSelected = selectedMonthIndex == index
+
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        modifier = Modifier
+                            .weight(1f)
+                            .fillMaxHeight()
+                            .clickable {
+                                selectedMonthIndex = if (isSelected) null else index
+                            },
+                        verticalArrangement = Arrangement.Bottom
+                    ) {
+                        if (isSelected) {
+                            Text(
+                                text = Formatters.formatRupiah(item.totalSales),
+                                fontSize = 9.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.primary,
+                                maxLines = 1
+                            )
+                            Spacer(modifier = Modifier.height(2.dp))
+                        }
+
+                        Row(
+                            verticalAlignment = Alignment.Bottom,
+                            horizontalArrangement = Arrangement.spacedBy(3.dp)
+                        ) {
+                            // Omset Bar
+                            Box(
+                                modifier = Modifier
+                                    .width(14.dp)
+                                    .fillMaxHeight(salesRatio)
+                                    .clip(RoundedCornerShape(topStart = 4.dp, topEnd = 4.dp))
+                                    .background(
+                                        if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.primary.copy(alpha = 0.85f)
+                                    )
+                            )
+                            // Profit Bar
+                            Box(
+                                modifier = Modifier
+                                    .width(10.dp)
+                                    .fillMaxHeight(profitRatio)
+                                    .clip(RoundedCornerShape(topStart = 4.dp, topEnd = 4.dp))
+                                    .background(Color(0xFF2E7D32))
+                            )
+                        }
+
+                        Spacer(modifier = Modifier.height(6.dp))
+
+                        Text(
+                            text = item.monthLabel,
+                            fontSize = 11.sp,
+                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+                            color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
+                        )
+                    }
+                }
+            }
+
+            if (selectedMonthIndex != null && selectedMonthIndex!! in monthlyData.indices) {
+                val detail = monthlyData[selectedMonthIndex!!]
+                Spacer(modifier = Modifier.height(10.dp))
+                Surface(
+                    shape = RoundedCornerShape(8.dp),
+                    color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = "Detail ${detail.monthLabel}:",
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onPrimaryContainer
+                        )
+                        Text(
+                            text = "Omset: ${Formatters.formatRupiah(detail.totalSales)} • Profit: ${Formatters.formatRupiah(detail.totalProfit)}",
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            color = MaterialTheme.colorScheme.onPrimaryContainer
+                        )
+                    }
+                }
+            }
+        }
+    }
 }
 
 @Composable

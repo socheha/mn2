@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -259,7 +260,8 @@ fun MenuBarangScreen(
 
                             Card(
                                 onClick = {
-                                    com.example.util.AppBackupUtils.shareItemsCsvFile(context, itemsList)
+                                    val resultMsg = com.example.util.AppBackupUtils.saveCsvToDownloads(context, itemsList)
+                                    android.widget.Toast.makeText(context, resultMsg, android.widget.Toast.LENGTH_LONG).show()
                                 },
                                 colors = CardDefaults.cardColors(containerColor = Color(0xFFE3F2FD)),
                                 shape = RoundedCornerShape(8.dp),
@@ -605,26 +607,44 @@ fun ItemFormDialog(
 ) {
     var kode by remember { mutableStateOf(initialKode) }
     var nama by remember { mutableStateOf(initialNama) }
-    var stok by remember { mutableStateOf(initialStok) }
-    var harga by remember { mutableStateOf(initialHargaModal) }
+    var stok by remember { mutableStateOf(initialStok.filter { it.isDigit() }) }
+    var harga by remember { mutableStateOf(initialHargaModal.filter { it.isDigit() }) }
     var keterangan by remember { mutableStateOf(initialKeterangan) }
     var isError by remember { mutableStateOf(false) }
+    var errorMessage by remember { mutableStateOf<String?>(null) }
 
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text(text = title, fontWeight = FontWeight.Bold) },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                if (errorMessage != null) {
+                    Surface(
+                        shape = RoundedCornerShape(8.dp),
+                        color = MaterialTheme.colorScheme.errorContainer,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text(
+                            text = errorMessage ?: "",
+                            color = MaterialTheme.colorScheme.onErrorContainer,
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)
+                        )
+                    }
+                }
+
                 OutlinedTextField(
                     value = nama,
                     onValueChange = {
                         nama = it
-                        if (it.isNotBlank()) isError = false
+                        isError = false
+                        errorMessage = null
                     },
                     label = { Text("Nama Barang *") },
                     isError = isError && nama.isBlank(),
                     singleLine = true,
-                    modifier = Modifier.fillMaxWidth()
+                    modifier = Modifier.fillMaxWidth().testTag("input_nama_barang")
                 )
 
                 OutlinedTextField(
@@ -632,26 +652,36 @@ fun ItemFormDialog(
                     onValueChange = { kode = it },
                     label = { Text("Kode Barang (Opsional, misal: F609)") },
                     singleLine = true,
-                    modifier = Modifier.fillMaxWidth()
+                    modifier = Modifier.fillMaxWidth().testTag("input_kode_barang")
                 )
 
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     OutlinedTextField(
                         value = stok,
-                        onValueChange = { stok = it },
+                        onValueChange = { input ->
+                            stok = input.filter { it.isDigit() }
+                            errorMessage = null
+                        },
                         label = { Text("Stok Initial") },
+                        placeholder = { Text("0") },
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                         singleLine = true,
-                        modifier = Modifier.weight(1f)
+                        isError = errorMessage?.contains("Stok", ignoreCase = true) == true,
+                        modifier = Modifier.weight(1f).testTag("input_stok_barang")
                     )
 
                     OutlinedTextField(
                         value = harga,
-                        onValueChange = { harga = it },
+                        onValueChange = { input ->
+                            harga = input.filter { it.isDigit() }
+                            errorMessage = null
+                        },
                         label = { Text("Harga Modal (Rp)") },
+                        placeholder = { Text("0") },
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                         singleLine = true,
-                        modifier = Modifier.weight(1f)
+                        isError = errorMessage?.contains("Harga", ignoreCase = true) == true,
+                        modifier = Modifier.weight(1f).testTag("input_harga_barang")
                     )
                 }
 
@@ -666,12 +696,28 @@ fun ItemFormDialog(
         confirmButton = {
             Button(
                 onClick = {
-                    if (nama.isBlank()) {
-                        isError = true
-                    } else {
-                        onConfirm(kode, nama, stok, harga, keterangan)
+                    val stokVal = if (stok.isBlank()) 0 else stok.toIntOrNull()
+                    val hargaVal = if (harga.isBlank()) 0.0 else harga.toDoubleOrNull()
+
+                    when {
+                        nama.isBlank() -> {
+                            isError = true
+                            errorMessage = "Nama barang wajib diisi"
+                        }
+                        stokVal == null -> {
+                            isError = true
+                            errorMessage = "Stok harus berupa angka bulat yang valid"
+                        }
+                        hargaVal == null -> {
+                            isError = true
+                            errorMessage = "Harga modal harus berupa angka yang valid"
+                        }
+                        else -> {
+                            onConfirm(kode.trim(), nama.trim(), stokVal.toString(), hargaVal.toInt().toString(), keterangan.trim())
+                        }
                     }
-                }
+                },
+                modifier = Modifier.testTag("btn_simpan_barang")
             ) {
                 Text("Simpan")
             }
@@ -772,6 +818,7 @@ fun ExcelImportDialog(
     var pastedText by remember { mutableStateOf("") }
     var selectedFileName by remember { mutableStateOf("") }
     var isImporting by remember { mutableStateOf(false) }
+    var isExpandedPreview by remember { mutableStateOf(false) }
 
     val filePickerLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.GetContent()
@@ -795,153 +842,182 @@ fun ExcelImportDialog(
     AlertDialog(
         onDismissRequest = onDismiss,
         title = {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Icon(
-                    imageVector = Icons.Default.TableChart,
-                    contentDescription = null,
-                    tint = Color(0xFF2E7D32),
-                    modifier = Modifier.padding(end = 8.dp)
-                )
-                Text(text = "Import Barang dari Excel / CSV", fontWeight = FontWeight.Bold, fontSize = 16.sp)
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(
+                        imageVector = Icons.Default.TableChart,
+                        contentDescription = null,
+                        tint = Color(0xFF2E7D32),
+                        modifier = Modifier.padding(end = 8.dp)
+                    )
+                    Text(text = "Import Data Excel / CSV", fontWeight = FontWeight.Bold, fontSize = 16.sp)
+                }
+                IconButton(onClick = onDismiss, modifier = Modifier.size(28.dp)) {
+                    Icon(Icons.Default.Close, contentDescription = "Tutup", modifier = Modifier.size(18.dp))
+                }
             }
         },
         text = {
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(380.dp)
+                    .heightIn(min = 400.dp, max = if (isExpandedPreview) 600.dp else 480.dp)
             ) {
-                // Mode Selector
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    FilterChip(
-                        selected = importMode == 0,
-                        onClick = { importMode = 0 },
-                        label = { Text("Pilih File (.xlsx/.csv)", fontSize = 12.sp) },
-                        colors = FilterChipDefaults.filterChipColors(
-                            selectedContainerColor = Color(0xFFE8F5E9),
-                            selectedLabelColor = Color(0xFF1B5E20)
-                        )
-                    )
-                    FilterChip(
-                        selected = importMode == 1,
-                        onClick = { importMode = 1 },
-                        label = { Text("Tempel Teks (Paste)", fontSize = 12.sp) },
-                        colors = FilterChipDefaults.filterChipColors(
-                            selectedContainerColor = Color(0xFFE8F5E9),
-                            selectedLabelColor = Color(0xFF1B5E20)
-                        )
-                    )
-                }
-
-                Spacer(modifier = Modifier.height(10.dp))
-
-                if (importMode == 0) {
-                    Card(
+                // If not in expanded preview mode, show input controls
+                if (!isExpandedPreview) {
+                    // Mode Selector
+                    Row(
                         modifier = Modifier.fillMaxWidth(),
-                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        Column(
-                            modifier = Modifier.padding(12.dp),
-                            horizontalAlignment = Alignment.CenterHorizontally
-                        ) {
-                            Text(
-                                text = "Pilih file Excel (.xlsx), CSV (.csv) atau TXT dari HP / Google Drive Anda.",
-                                fontSize = 11.sp,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                        FilterChip(
+                            selected = importMode == 0,
+                            onClick = { importMode = 0 },
+                            label = { Text("Pilih File (.xlsx/.csv)", fontSize = 11.sp) },
+                            colors = FilterChipDefaults.filterChipColors(
+                                selectedContainerColor = Color(0xFFE8F5E9),
+                                selectedLabelColor = Color(0xFF1B5E20)
                             )
-                            Spacer(modifier = Modifier.height(8.dp))
-                            Button(
-                                onClick = { filePickerLauncher.launch("*/*") },
-                                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2E7D32)),
-                                shape = RoundedCornerShape(8.dp)
-                            ) {
-                                Icon(imageVector = Icons.Default.FileUpload, contentDescription = null, modifier = Modifier.size(18.dp))
-                                Spacer(modifier = Modifier.width(6.dp))
-                                Text("Pilih File Excel / CSV")
-                            }
-                            if (selectedFileName.isNotBlank()) {
-                                Spacer(modifier = Modifier.height(4.dp))
-                                Text(text = "File: $selectedFileName", fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
-                            }
-                        }
+                        )
+                        FilterChip(
+                            selected = importMode == 1,
+                            onClick = { importMode = 1 },
+                            label = { Text("Tempel Teks (Paste)", fontSize = 11.sp) },
+                            colors = FilterChipDefaults.filterChipColors(
+                                selectedContainerColor = Color(0xFFE8F5E9),
+                                selectedLabelColor = Color(0xFF1B5E20)
+                            )
+                        )
                     }
-                } else {
-                    Column {
-                        Row(
+
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    if (importMode == 0) {
+                        Card(
                             modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
+                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
                         ) {
-                            Text(text = "Salin dari Excel/Sheets & tempel di bawah:", fontSize = 11.sp)
-                            IconButton(
-                                onClick = {
-                                    val template = ExcelImportUtils.getSampleExcelTemplate()
-                                    clipboardManager.setText(AnnotatedString(template))
-                                    Toast.makeText(context, "Contoh format disalin ke clipboard", Toast.LENGTH_SHORT).show()
-                                },
-                                modifier = Modifier.size(32.dp)
+                            Column(
+                                modifier = Modifier.padding(10.dp),
+                                horizontalAlignment = Alignment.CenterHorizontally
                             ) {
-                                Icon(
-                                    imageVector = Icons.Default.ContentCopy,
-                                    contentDescription = "Salin Contoh Format",
-                                    tint = MaterialTheme.colorScheme.primary,
-                                    modifier = Modifier.size(18.dp)
+                                Text(
+                                    text = "Pilih file Excel (.xlsx), CSV (.csv) atau TXT dari HP / Google Drive Anda.",
+                                    fontSize = 11.sp,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
+                                Spacer(modifier = Modifier.height(6.dp))
+                                Button(
+                                    onClick = { filePickerLauncher.launch("*/*") },
+                                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2E7D32)),
+                                    shape = RoundedCornerShape(8.dp),
+                                    modifier = Modifier.testTag("btn_pilih_file_excel")
+                                ) {
+                                    Icon(imageVector = Icons.Default.FileUpload, contentDescription = null, modifier = Modifier.size(18.dp))
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Text("Pilih File Excel / CSV", fontSize = 12.sp)
+                                }
+                                if (selectedFileName.isNotBlank()) {
+                                    Spacer(modifier = Modifier.height(4.dp))
+                                    Text(text = "Terpilih: $selectedFileName", fontSize = 11.sp, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.primary)
+                                }
                             }
                         }
-                        OutlinedTextField(
-                            value = pastedText,
-                            onValueChange = {
-                                pastedText = it
-                                parsedItems = ExcelImportUtils.parseItemsFromPastedText(it)
-                            },
-                            placeholder = { Text("Paste tabel baris dari Excel di sini...\nFormat: Kode | Nama | Stok | Harga | Ket", fontSize = 11.sp) },
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .height(110.dp)
-                        )
+                    } else {
+                        Column {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(text = "Salin dari Excel/Sheets & tempel di bawah:", fontSize = 11.sp)
+                                IconButton(
+                                    onClick = {
+                                        val template = ExcelImportUtils.getSampleExcelTemplate()
+                                        clipboardManager.setText(AnnotatedString(template))
+                                        Toast.makeText(context, "Contoh format disalin ke clipboard", Toast.LENGTH_SHORT).show()
+                                    },
+                                    modifier = Modifier.size(28.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.ContentCopy,
+                                        contentDescription = "Salin Contoh Format",
+                                        tint = MaterialTheme.colorScheme.primary,
+                                        modifier = Modifier.size(16.dp)
+                                    )
+                                }
+                            }
+                            OutlinedTextField(
+                                value = pastedText,
+                                onValueChange = {
+                                    pastedText = it
+                                    parsedItems = ExcelImportUtils.parseItemsFromPastedText(it)
+                                },
+                                placeholder = { Text("Paste tabel baris dari Excel di sini...\nFormat: Kode | Nama | Stok | Harga | Ket", fontSize = 11.sp) },
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(95.dp)
+                                    .testTag("input_paste_excel_text")
+                            )
+                        }
                     }
+
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    // Format Guide Card
+                    Surface(
+                        shape = RoundedCornerShape(8.dp),
+                        color = Color(0xFFFFF8E1),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Column(modifier = Modifier.padding(6.dp)) {
+                            Text(
+                                text = "📌 Format Urutan Kolom Excel:",
+                                fontSize = 10.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = Color(0xFFF57F17)
+                            )
+                            Text(
+                                text = "Kolom 1: Kode Barang • Kolom 2: Nama Barang • Kolom 3: Stok Awal • Kolom 4: Harga Modal • Kolom 5: Keterangan",
+                                fontSize = 10.sp,
+                                color = Color(0xFF5D4037)
+                            )
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(8.dp))
                 }
 
-                Spacer(modifier = Modifier.height(10.dp))
-
-                // Format Guide Card
-                Surface(
-                    shape = RoundedCornerShape(8.dp),
-                    color = Color(0xFFFFF8E1),
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Column(modifier = Modifier.padding(8.dp)) {
-                        Text(
-                            text = "📌 Format Urutan Kolom Excel:",
-                            fontSize = 11.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = Color(0xFFF57F17)
-                        )
-                        Text(
-                            text = "Kolom 1: Kode Barang • Kolom 2: Nama Barang • Kolom 3: Stok Awal • Kolom 4: Harga Modal • Kolom 5: Keterangan",
-                            fontSize = 10.sp,
-                            color = Color(0xFF5D4037)
-                        )
-                    }
-                }
-
-                Spacer(modifier = Modifier.height(10.dp))
-
-                // Preview Table
+                // Preview Table Header
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Text(
-                        text = "Preview Data (${parsedItems.size} Barang Found):",
+                        text = "Preview Data (${parsedItems.size} Barang Ditemukan):",
                         fontSize = 12.sp,
-                        fontWeight = FontWeight.Bold
+                        fontWeight = FontWeight.Bold,
+                        color = Color(0xFF2E7D32)
                     )
+
+                    if (parsedItems.isNotEmpty()) {
+                        TextButton(
+                            onClick = { isExpandedPreview = !isExpandedPreview },
+                            contentPadding = PaddingValues(horizontal = 6.dp, vertical = 2.dp)
+                        ) {
+                            Text(
+                                text = if (isExpandedPreview) "Collapse Layout" else "↕️ Perluas Preview",
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.primary
+                            )
+                        }
+                    }
                 }
 
                 Spacer(modifier = Modifier.height(4.dp))
@@ -951,39 +1027,63 @@ fun ExcelImportDialog(
                         modifier = Modifier
                             .fillMaxWidth()
                             .weight(1f)
-                            .background(MaterialTheme.colorScheme.surfaceVariant, RoundedCornerShape(8.dp)),
+                            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f), RoundedCornerShape(8.dp)),
                         contentAlignment = Alignment.Center
                     ) {
-                        Text("Belum ada data barang dibaca.\nPilih file atau tempel teks di atas.", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text(
+                            text = "Belum ada data barang dibaca.\nPilih file Excel/CSV atau tempel teks di atas.",
+                            fontSize = 12.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(16.dp)
+                        )
                     }
                 } else {
                     LazyColumn(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .weight(1f),
-                        verticalArrangement = Arrangement.spacedBy(4.dp)
+                            .weight(1f)
+                            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.25f), RoundedCornerShape(8.dp))
+                            .padding(4.dp),
+                        verticalArrangement = Arrangement.spacedBy(6.dp)
                     ) {
                         items(parsedItems) { item ->
                             Card(
-                                shape = RoundedCornerShape(6.dp),
-                                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+                                shape = RoundedCornerShape(8.dp),
+                                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                                elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
                             ) {
                                 Row(
                                     modifier = Modifier
                                         .fillMaxWidth()
-                                        .padding(8.dp),
+                                        .padding(10.dp),
                                     horizontalArrangement = Arrangement.SpaceBetween,
                                     verticalAlignment = Alignment.CenterVertically
                                 ) {
                                     Column(modifier = Modifier.weight(1f)) {
-                                        Text(text = item.namaBarang, fontWeight = FontWeight.SemiBold, fontSize = 12.sp)
+                                        Text(text = item.namaBarang, fontWeight = FontWeight.Bold, fontSize = 13.sp)
                                         if (item.kodeBarang.isNotBlank()) {
-                                            Text(text = "Kode: ${item.kodeBarang}", fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                            Text(text = "Kode: ${item.kodeBarang}", fontSize = 11.sp, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Medium)
+                                        }
+                                        if (item.keterangan.isNotBlank()) {
+                                            Text(text = "Ket: ${item.keterangan}", fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                         }
                                     }
+                                    Spacer(modifier = Modifier.width(8.dp))
                                     Column(horizontalAlignment = Alignment.End) {
-                                        Text(text = "Stok: ${item.stok}", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = Color(0xFF2E7D32))
-                                        Text(text = Formatters.formatRupiah(item.hargaModal), fontSize = 10.sp)
+                                        Surface(
+                                            shape = RoundedCornerShape(4.dp),
+                                            color = Color(0xFFE8F5E9)
+                                        ) {
+                                            Text(
+                                                text = "Stok: ${item.stok}",
+                                                fontSize = 11.sp,
+                                                fontWeight = FontWeight.Bold,
+                                                color = Color(0xFF1B5E20),
+                                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                            )
+                                        }
+                                        Spacer(modifier = Modifier.height(2.dp))
+                                        Text(text = Formatters.formatRupiah(item.hargaModal), fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
                                     }
                                 }
                             }
@@ -1005,9 +1105,11 @@ fun ExcelImportDialog(
                     }
                 },
                 enabled = parsedItems.isNotEmpty() && !isImporting,
-                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2E7D32))
+                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2E7D32)),
+                shape = RoundedCornerShape(8.dp),
+                modifier = Modifier.testTag("btn_konfirmasi_impor_excel")
             ) {
-                Text(if (isImporting) "Memproses..." else "Impor ${parsedItems.size} Barang")
+                Text(if (isImporting) "Memproses..." else "Impor ${parsedItems.size} Barang", fontWeight = FontWeight.Bold)
             }
         },
         dismissButton = {

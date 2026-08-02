@@ -24,6 +24,7 @@ import androidx.compose.material.icons.filled.AccountBalance
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.ArrowDownward
 import androidx.compose.material.icons.filled.ArrowUpward
+import androidx.compose.material.icons.filled.Calculate
 import androidx.compose.material.icons.filled.DeleteForever
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.FilterList
@@ -31,6 +32,8 @@ import androidx.compose.material.icons.filled.Money
 import androidx.compose.material.icons.filled.MoneyOff
 import androidx.compose.material.icons.filled.Payments
 import androidx.compose.material.icons.filled.ReceiptLong
+import androidx.compose.material.icons.filled.SwapHoriz
+import com.example.ui.components.CalculatorDialog
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -83,10 +86,12 @@ fun MenuKasScreen(
 
     var showKasMasukDialog by remember { mutableStateOf(false) }
     var showKasKeluarDialog by remember { mutableStateOf(false) }
+    var showTransferDialog by remember { mutableStateOf(false) }
     var showEditSaldoDialog by remember { mutableStateOf(false) }
     var showClearConfirmDialog by remember { mutableStateOf(false) }
     var targetAccountForEdit by remember { mutableStateOf("TUNAI") }
     var accountToDelete by remember { mutableStateOf<com.example.data.entity.CashAccountEntity?>(null) }
+    var mutationToCancel by remember { mutableStateOf<com.example.data.entity.CashMutationEntity?>(null) }
 
     var selectedFilterAccount by remember { mutableStateOf("ALL") } // "ALL", "TUNAI", "NON_TUNAI"
 
@@ -179,7 +184,7 @@ fun MenuKasScreen(
 
                         Row(
                             modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(10.dp)
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
                         ) {
                             Button(
                                 onClick = { showKasMasukDialog = true },
@@ -188,15 +193,16 @@ fun MenuKasScreen(
                                     contentColor = Color.White
                                 ),
                                 shape = RoundedCornerShape(10.dp),
-                                modifier = Modifier.weight(1f)
+                                modifier = Modifier.weight(1f),
+                                contentPadding = PaddingValues(horizontal = 4.dp, vertical = 8.dp)
                             ) {
                                 Icon(
                                     imageVector = Icons.Default.Add,
                                     contentDescription = null,
-                                    modifier = Modifier.size(18.dp)
+                                    modifier = Modifier.size(16.dp)
                                 )
-                                Spacer(modifier = Modifier.width(4.dp))
-                                Text("+ Kas Masuk", fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                                Spacer(modifier = Modifier.width(2.dp))
+                                Text("+ Masuk", fontWeight = FontWeight.Bold, fontSize = 12.sp)
                             }
 
                             Button(
@@ -206,15 +212,35 @@ fun MenuKasScreen(
                                     contentColor = MaterialTheme.colorScheme.primary
                                 ),
                                 shape = RoundedCornerShape(10.dp),
-                                modifier = Modifier.weight(1f)
+                                modifier = Modifier.weight(1f),
+                                contentPadding = PaddingValues(horizontal = 4.dp, vertical = 8.dp)
                             ) {
                                 Icon(
                                     imageVector = Icons.Default.MoneyOff,
                                     contentDescription = null,
-                                    modifier = Modifier.size(18.dp)
+                                    modifier = Modifier.size(16.dp)
                                 )
-                                Spacer(modifier = Modifier.width(4.dp))
-                                Text("+ Kas Keluar", fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                                Spacer(modifier = Modifier.width(2.dp))
+                                Text("+ Keluar", fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                            }
+
+                            Button(
+                                onClick = { showTransferDialog = true },
+                                colors = ButtonDefaults.buttonColors(
+                                    containerColor = Color(0xFF1565C0),
+                                    contentColor = Color.White
+                                ),
+                                shape = RoundedCornerShape(10.dp),
+                                modifier = Modifier.weight(1f),
+                                contentPadding = PaddingValues(horizontal = 4.dp, vertical = 8.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.SwapHoriz,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(16.dp)
+                                )
+                                Spacer(modifier = Modifier.width(2.dp))
+                                Text("Transfer", fontWeight = FontWeight.Bold, fontSize = 12.sp)
                             }
                         }
                     }
@@ -721,19 +747,60 @@ fun MenuKasScreen(
                                 }
                             }
 
-                            Text(
-                                text = "${if (isMasuk) "+" else "-"}${Formatters.formatRupiah(kotlin.math.abs(mutation.nominal))}",
-                                fontWeight = FontWeight.Bold,
-                                fontSize = 14.sp,
-                                color = if (isPenyesuaian) Color(0xFFE65100)
-                                else if (isMasuk) Color(0xFF2E7D32)
-                                else Color(0xFFC62828)
-                            )
+                            Column(horizontalAlignment = Alignment.End) {
+                                Text(
+                                    text = "${if (isMasuk) "+" else "-"}${Formatters.formatRupiah(kotlin.math.abs(mutation.nominal))}",
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 14.sp,
+                                    color = if (isPenyesuaian) Color(0xFFE65100)
+                                    else if (isMasuk) Color(0xFF2E7D32)
+                                    else Color(0xFFC62828)
+                                )
+                                TextButton(
+                                    onClick = { mutationToCancel = mutation },
+                                    contentPadding = PaddingValues(0.dp),
+                                    modifier = Modifier.height(24.dp)
+                                ) {
+                                    Text("Batalkan", fontSize = 10.sp, color = Color(0xFFD32F2F), fontWeight = FontWeight.SemiBold)
+                                }
+                            }
                         }
                     }
                 }
             }
         }
+    }
+
+    // Confirmation Dialog for Mutation Cancellation
+    mutationToCancel?.let { mut ->
+        val context = androidx.compose.ui.platform.LocalContext.current
+        AlertDialog(
+            onDismissRequest = { mutationToCancel = null },
+            title = { Text("Batalkan Transaksi Kas?", fontWeight = FontWeight.Bold, color = Color(0xFFD32F2F)) },
+            text = {
+                Text(
+                    "Apakah Anda yakin ingin membatalkan transaksi mutasi kas '${mut.kategori}' sebesar ${Formatters.formatRupiah(kotlin.math.abs(mut.nominal))}? Saldo kas ${mut.accountType} akan dikembalikan/di-adjust secara otomatis."
+                )
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        viewModel.cancelCashMutation(mut.id) {
+                            mutationToCancel = null
+                            android.widget.Toast.makeText(context, "Transaksi mutasi kas berhasil dibatalkan!", android.widget.Toast.LENGTH_SHORT).show()
+                        }
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFD32F2F))
+                ) {
+                    Text("Ya, Batalkan Transaksi", fontWeight = FontWeight.Bold)
+                }
+            },
+            dismissButton = {
+                OutlinedButton(onClick = { mutationToCancel = null }) {
+                    Text("Tidak")
+                }
+            }
+        )
     }
 
     // --- Dialog Kas Masuk (Income) ---
@@ -784,6 +851,17 @@ fun MenuKasScreen(
                         }
                     }
 
+                    var showCalcMasuk by remember { mutableStateOf(false) }
+                    if (showCalcMasuk) {
+                        CalculatorDialog(
+                            initialValue = nominalStr,
+                            onDismiss = { showCalcMasuk = false },
+                            onApplyResult = { res ->
+                                nominalStr = if (res % 1.0 == 0.0) res.toLong().toString() else res.toString()
+                            }
+                        )
+                    }
+
                     OutlinedTextField(
                         value = nominalStr,
                         onValueChange = { nominalStr = it },
@@ -791,6 +869,15 @@ fun MenuKasScreen(
                         placeholder = { Text("100000") },
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                         singleLine = true,
+                        trailingIcon = {
+                            IconButton(onClick = { showCalcMasuk = true }) {
+                                Icon(
+                                    imageVector = Icons.Default.Calculate,
+                                    contentDescription = "Kalkulator",
+                                    tint = MaterialTheme.colorScheme.primary
+                                )
+                            }
+                        },
                         modifier = Modifier.fillMaxWidth()
                     )
 
@@ -920,6 +1007,17 @@ fun MenuKasScreen(
                         }
                     }
 
+                    var showCalcKeluar by remember { mutableStateOf(false) }
+                    if (showCalcKeluar) {
+                        CalculatorDialog(
+                            initialValue = nominalStr,
+                            onDismiss = { showCalcKeluar = false },
+                            onApplyResult = { res ->
+                                nominalStr = if (res % 1.0 == 0.0) res.toLong().toString() else res.toString()
+                            }
+                        )
+                    }
+
                     OutlinedTextField(
                         value = nominalStr,
                         onValueChange = { nominalStr = it },
@@ -927,6 +1025,15 @@ fun MenuKasScreen(
                         placeholder = { Text("50000") },
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                         singleLine = true,
+                        trailingIcon = {
+                            IconButton(onClick = { showCalcKeluar = true }) {
+                                Icon(
+                                    imageVector = Icons.Default.Calculate,
+                                    contentDescription = "Kalkulator",
+                                    tint = MaterialTheme.colorScheme.primary
+                                )
+                            }
+                        },
                         modifier = Modifier.fillMaxWidth()
                     )
 
@@ -1000,6 +1107,168 @@ fun MenuKasScreen(
             },
             dismissButton = {
                 TextButton(onClick = { showKasKeluarDialog = false }) {
+                    Text("Batal")
+                }
+            }
+        )
+    }
+
+    // --- Dialog Transfer Antar Kas / Bank ---
+    if (showTransferDialog) {
+        var nominalStr by remember { mutableStateOf("") }
+        var sumberKasCode by remember { mutableStateOf("TUNAI") }
+        var tujuanKasCode by remember { mutableStateOf("BCA") }
+        var keterangan by remember { mutableStateOf("") }
+        var tanggal by remember { mutableStateOf(Formatters.getCurrentDateFormatted()) }
+        var showCalcTransfer by remember { mutableStateOf(false) }
+
+        if (showCalcTransfer) {
+            CalculatorDialog(
+                initialValue = nominalStr,
+                onDismiss = { showCalcTransfer = false },
+                onApplyResult = { res ->
+                    nominalStr = if (res % 1.0 == 0.0) res.toLong().toString() else res.toString()
+                }
+            )
+        }
+
+        val availableAccounts = remember(allAccounts) {
+            val defaults = com.example.data.entity.CashAccountDefaults.ALL_DEFAULT_ACCOUNTS
+            val registeredTypes = allAccounts.map { it.accountType }.toSet()
+            val combined = allAccounts.map {
+                com.example.data.entity.AccountTypeInfo(it.accountType, it.accountName, com.example.data.entity.CashAccountDefaults.getAccountCategory(it.accountType))
+            }.toMutableList()
+
+            defaults.forEach { d ->
+                if (d.type !in registeredTypes) {
+                    combined.add(d)
+                }
+            }
+            combined
+        }
+
+        AlertDialog(
+            onDismissRequest = { showTransferDialog = false },
+            title = {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(
+                        imageVector = Icons.Default.SwapHoriz,
+                        contentDescription = null,
+                        tint = Color(0xFF1565C0),
+                        modifier = Modifier.padding(end = 8.dp)
+                    )
+                    Text(
+                        text = "Transfer Antar Kas / Bank",
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 18.sp
+                    )
+                }
+            },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Text(
+                        text = "1. Dari Kas / Rekening (Pengirim):",
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                    androidx.compose.foundation.lazy.LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        items(availableAccounts) { acc ->
+                            val accSaldo = allAccounts.find { it.accountType == acc.type }?.saldo ?: 0.0
+                            FilterChip(
+                                selected = sumberKasCode == acc.type,
+                                onClick = {
+                                    sumberKasCode = acc.type
+                                    if (tujuanKasCode == acc.type) {
+                                        tujuanKasCode = availableAccounts.find { it.type != acc.type }?.type ?: "BCA"
+                                    }
+                                },
+                                label = { Text("${acc.name} (${Formatters.formatRupiah(accSaldo)})", fontSize = 11.sp) },
+                                colors = FilterChipDefaults.filterChipColors(
+                                    selectedContainerColor = Color(0xFFFFF3E0),
+                                    selectedLabelColor = Color(0xFFE65100)
+                                )
+                            )
+                        }
+                    }
+
+                    Text(
+                        text = "2. Ke Kas / Rekening (Penerima):",
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                    androidx.compose.foundation.lazy.LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        items(availableAccounts.filter { it.type != sumberKasCode }) { acc ->
+                            val accSaldo = allAccounts.find { it.accountType == acc.type }?.saldo ?: 0.0
+                            FilterChip(
+                                selected = tujuanKasCode == acc.type,
+                                onClick = { tujuanKasCode = acc.type },
+                                label = { Text("${acc.name} (${Formatters.formatRupiah(accSaldo)})", fontSize = 11.sp) },
+                                colors = FilterChipDefaults.filterChipColors(
+                                    selectedContainerColor = Color(0xFFE3F2FD),
+                                    selectedLabelColor = Color(0xFF1565C0)
+                                )
+                            )
+                        }
+                    }
+
+                    OutlinedTextField(
+                        value = nominalStr,
+                        onValueChange = { nominalStr = it },
+                        label = { Text("Nominal Transfer (Rp)") },
+                        placeholder = { Text("100000") },
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                        singleLine = true,
+                        trailingIcon = {
+                            IconButton(onClick = { showCalcTransfer = true }) {
+                                Icon(
+                                    imageVector = Icons.Default.Calculate,
+                                    contentDescription = "Kalkulator",
+                                    tint = MaterialTheme.colorScheme.primary
+                                )
+                            }
+                        },
+                        modifier = Modifier.fillMaxWidth()
+                    )
+
+                    OutlinedTextField(
+                        value = keterangan,
+                        onValueChange = { keterangan = it },
+                        label = { Text("Keterangan / Catatan Transfer (Opsional)") },
+                        placeholder = { Text("Contoh: Pindah saldo kas toko ke rekening BCA") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+
+                    DatePickerField(
+                        value = tanggal,
+                        onDateSelected = { tanggal = it },
+                        label = "Tanggal Mutasi",
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        val amount = nominalStr.toDoubleOrNull() ?: 0.0
+                        if (amount > 0) {
+                            viewModel.transferCash(
+                                fromAccount = sumberKasCode,
+                                toAccount = tujuanKasCode,
+                                amount = amount,
+                                note = keterangan,
+                                date = tanggal
+                            )
+                            showTransferDialog = false
+                        }
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF1565C0))
+                ) {
+                    Text("Proses Transfer", color = Color.White, fontWeight = FontWeight.Bold)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showTransferDialog = false }) {
                     Text("Batal")
                 }
             }

@@ -30,6 +30,10 @@ import androidx.compose.material.icons.filled.Print
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.ShoppingBag
+import androidx.compose.material.icons.filled.SwapHoriz
+import androidx.compose.material.icons.filled.AccountBalanceWallet
+import androidx.compose.material.icons.filled.PointOfSale
+import androidx.compose.material.icons.filled.Inventory
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
@@ -63,10 +67,12 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.example.data.entity.CashMutationEntity
 import com.example.data.entity.IncomingItemEntity
 import com.example.data.entity.IncomingTransactionEntity
 import com.example.data.entity.SalesItemEntity
 import com.example.data.entity.SalesTransactionEntity
+import com.example.data.entity.StockHistoryEntity
 import com.example.ui.MainViewModel
 import com.example.ui.components.DatePickerField
 import com.example.util.Formatters
@@ -81,9 +87,12 @@ fun MenuRekapScreen(
     val transactions by viewModel.rekapTransactions.collectAsStateWithLifecycle()
     val soldItemsSummary by viewModel.rekapSoldItems.collectAsStateWithLifecycle()
     val incomingTransactions by viewModel.allIncomingTransactions.collectAsStateWithLifecycle()
+    val stockHistoryList by viewModel.allStockHistory.collectAsStateWithLifecycle()
+    val cashMutationsList by viewModel.allCashMutations.collectAsStateWithLifecycle()
 
+    var selectedCategoryFilter by remember { mutableStateOf("Semua") } // "Semua", "Penjualan", "Perpindahan Stok", "Kas", "Barang Masuk"
     var activePreset by remember { mutableStateOf("Harian") } // "Harian", "Mingguan", "Bulanan", "Tahunan", "Kustom"
-    var selectedTabIndex by remember { mutableStateOf(0) } // 0: Nota Penjualan, 1: Barang Terjual, 2: Barang Masuk
+    var selectedTabIndex by remember { mutableStateOf(0) } // 0: Nota Penjualan, 1: Barang Terjual, 2: Perpindahan Stok, 3: Kas & Mutasi, 4: Barang Masuk
     var searchQuery by remember { mutableStateOf("") }
 
     var selectedTransactionForDetail by remember { mutableStateOf<SalesTransactionEntity?>(null) }
@@ -118,6 +127,32 @@ fun MenuRekapScreen(
                     inc.nomorFaktur.contains(searchQuery, ignoreCase = true) ||
                     inc.catatan.contains(searchQuery, ignoreCase = true) ||
                     inc.tanggal.contains(searchQuery, ignoreCase = true)
+        }
+    }
+
+    val filteredStockHistory = remember(stockHistoryList, startDate, endDate, searchQuery) {
+        stockHistoryList.filter { history ->
+            val dateStr = Formatters.formatTimestampToDateString(history.timestamp)
+            val inRange = dateStr >= startDate && dateStr <= endDate
+            val matchesSearch = searchQuery.isBlank() ||
+                    history.namaBarang.contains(searchQuery, ignoreCase = true) ||
+                    history.kodeBarang.contains(searchQuery, ignoreCase = true) ||
+                    history.jenis.contains(searchQuery, ignoreCase = true) ||
+                    history.keterangan.contains(searchQuery, ignoreCase = true) ||
+                    history.namaToko.contains(searchQuery, ignoreCase = true)
+            inRange && matchesSearch
+        }
+    }
+
+    val filteredCashMutations = remember(cashMutationsList, startDate, endDate, searchQuery) {
+        cashMutationsList.filter { mutation ->
+            val inRange = mutation.tanggal >= startDate && mutation.tanggal <= endDate
+            val matchesSearch = searchQuery.isBlank() ||
+                    mutation.kategori.contains(searchQuery, ignoreCase = true) ||
+                    mutation.keterangan.contains(searchQuery, ignoreCase = true) ||
+                    mutation.accountType.contains(searchQuery, ignoreCase = true) ||
+                    mutation.jenis.contains(searchQuery, ignoreCase = true)
+            inRange && matchesSearch
         }
     }
 
@@ -438,76 +473,96 @@ fun MenuRekapScreen(
                 )
             }
 
-            // Tab Selector Section (3 Tabs: Nota Penjualan, Barang Terjual, Barang Masuk)
+            // Category Filter Section (Penjualan, Perpindahan Stok, Kas, etc.)
             item {
-                Surface(
-                    shape = RoundedCornerShape(12.dp),
-                    color = MaterialTheme.colorScheme.surfaceVariant,
+                Column {
+                    Text(
+                        text = "Filter Kategori Riwayat:",
+                        style = MaterialTheme.typography.labelMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Spacer(modifier = Modifier.height(6.dp))
+                    LazyRow(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        val categories = listOf(
+                            "Semua" to "Semua Riwayat",
+                            "Penjualan" to "Penjualan",
+                            "Perpindahan Stok" to "Perpindahan Stok",
+                            "Kas" to "Kas & Mutasi",
+                            "Barang Masuk" to "Barang Masuk"
+                        )
+                        items(categories) { (key, label) ->
+                            val isSelected = selectedCategoryFilter == key
+                            FilterChip(
+                                selected = isSelected,
+                                onClick = {
+                                    selectedCategoryFilter = key
+                                    when (key) {
+                                        "Penjualan" -> selectedTabIndex = 0
+                                        "Perpindahan Stok" -> selectedTabIndex = 2
+                                        "Kas" -> selectedTabIndex = 3
+                                        "Barang Masuk" -> selectedTabIndex = 4
+                                        else -> selectedTabIndex = 0
+                                    }
+                                },
+                                label = { Text(label, fontSize = 12.sp, fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal) },
+                                leadingIcon = {
+                                    val icon = when (key) {
+                                        "Penjualan" -> Icons.Default.PointOfSale
+                                        "Perpindahan Stok" -> Icons.Default.SwapHoriz
+                                        "Kas" -> Icons.Default.AccountBalanceWallet
+                                        "Barang Masuk" -> Icons.Default.Inventory
+                                        else -> Icons.Default.Assessment
+                                    }
+                                    Icon(icon, contentDescription = null, modifier = Modifier.size(16.dp))
+                                },
+                                colors = FilterChipDefaults.filterChipColors(
+                                    selectedContainerColor = MaterialTheme.colorScheme.primaryContainer,
+                                    selectedLabelColor = MaterialTheme.colorScheme.onPrimaryContainer
+                                )
+                            )
+                        }
+                    }
+                }
+            }
+
+            // Tab Selector Section
+            item {
+                LazyRow(
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
                     modifier = Modifier.fillMaxWidth()
                 ) {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(4.dp)
-                    ) {
-                        Surface(
-                            shape = RoundedCornerShape(10.dp),
-                            color = if (selectedTabIndex == 0) MaterialTheme.colorScheme.surface else Color.Transparent,
-                            modifier = Modifier
-                                .weight(1f)
-                                .clickable { selectedTabIndex = 0 }
-                        ) {
-                            Box(
-                                modifier = Modifier.padding(vertical = 10.dp),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Text(
-                                    text = "Nota (${filteredTransactions.size})",
-                                    fontWeight = if (selectedTabIndex == 0) FontWeight.Bold else FontWeight.Normal,
-                                    fontSize = 12.sp,
-                                    color = if (selectedTabIndex == 0) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-                            }
-                        }
+                    val visibleTabs = when (selectedCategoryFilter) {
+                        "Penjualan" -> listOf(0 to "Nota Penjualan (${filteredTransactions.size})", 1 to "Barang Terjual (${filteredSoldItems.size})")
+                        "Perpindahan Stok" -> listOf(2 to "Perpindahan Stok (${filteredStockHistory.size})")
+                        "Kas" -> listOf(3 to "Kas & Mutasi (${filteredCashMutations.size})")
+                        "Barang Masuk" -> listOf(4 to "Barang Masuk (${filteredIncomingTransactions.size})")
+                        else -> listOf(
+                            0 to "Nota (${filteredTransactions.size})",
+                            1 to "Terjual (${filteredSoldItems.size})",
+                            2 to "Stok (${filteredStockHistory.size})",
+                            3 to "Kas (${filteredCashMutations.size})",
+                            4 to "Masuk (${filteredIncomingTransactions.size})"
+                        )
+                    }
 
+                    items(visibleTabs) { (index, title) ->
+                        val isSelected = selectedTabIndex == index
                         Surface(
                             shape = RoundedCornerShape(10.dp),
-                            color = if (selectedTabIndex == 1) MaterialTheme.colorScheme.surface else Color.Transparent,
-                            modifier = Modifier
-                                .weight(1f)
-                                .clickable { selectedTabIndex = 1 }
+                            color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant,
+                            modifier = Modifier.clickable { selectedTabIndex = index }
                         ) {
-                            Box(
-                                modifier = Modifier.padding(vertical = 10.dp),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Text(
-                                    text = "Terjual (${filteredSoldItems.size})",
-                                    fontWeight = if (selectedTabIndex == 1) FontWeight.Bold else FontWeight.Normal,
-                                    fontSize = 12.sp,
-                                    color = if (selectedTabIndex == 1) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-                            }
-                        }
-
-                        Surface(
-                            shape = RoundedCornerShape(10.dp),
-                            color = if (selectedTabIndex == 2) MaterialTheme.colorScheme.surface else Color.Transparent,
-                            modifier = Modifier
-                                .weight(1f)
-                                .clickable { selectedTabIndex = 2 }
-                        ) {
-                            Box(
-                                modifier = Modifier.padding(vertical = 10.dp),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Text(
-                                    text = "Masuk (${filteredIncomingTransactions.size})",
-                                    fontWeight = if (selectedTabIndex == 2) FontWeight.Bold else FontWeight.Normal,
-                                    fontSize = 12.sp,
-                                    color = if (selectedTabIndex == 2) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-                            }
+                            Text(
+                                text = title,
+                                fontSize = 12.sp,
+                                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+                                color = if (isSelected) Color.White else MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)
+                            )
                         }
                     }
                 }
@@ -700,8 +755,175 @@ fun MenuRekapScreen(
                         }
                     }
                 }
+            } else if (selectedTabIndex == 2) {
+                // Tab 2: Perpindahan & Transfer Stok
+                if (filteredStockHistory.isEmpty()) {
+                    item {
+                        Card(
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(12.dp),
+                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+                        ) {
+                            Text(
+                                text = "Tidak ada riwayat perpindahan stok ditemukan pada rentang tanggal ini.",
+                                modifier = Modifier.padding(16.dp),
+                                fontSize = 13.sp,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+                } else {
+                    items(filteredStockHistory, key = { it.id }) { history ->
+                        Card(
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(12.dp),
+                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                            elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
+                        ) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(14.dp),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        Surface(
+                                            shape = RoundedCornerShape(4.dp),
+                                            color = MaterialTheme.colorScheme.secondaryContainer,
+                                            modifier = Modifier.padding(end = 6.dp)
+                                        ) {
+                                            Text(
+                                                text = history.jenis,
+                                                style = MaterialTheme.typography.labelSmall,
+                                                fontWeight = FontWeight.Bold,
+                                                color = MaterialTheme.colorScheme.onSecondaryContainer,
+                                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                            )
+                                        }
+                                        Text(
+                                            text = history.namaBarang,
+                                            fontWeight = FontWeight.Bold,
+                                            fontSize = 14.sp
+                                        )
+                                    }
+                                    Spacer(modifier = Modifier.height(4.dp))
+                                    Text(
+                                        text = "Toko: ${history.namaToko} • Waktu: ${Formatters.formatTimestamp(history.timestamp)}",
+                                        fontSize = 12.sp,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                    Text(
+                                        text = "Perubahan: ${history.stokAwal} → ${history.stokAkhir} unit",
+                                        fontSize = 12.sp,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                    if (history.keterangan.isNotBlank()) {
+                                        Text(
+                                            text = "Ket: ${history.keterangan}",
+                                            fontSize = 11.sp,
+                                            color = MaterialTheme.colorScheme.outline
+                                        )
+                                    }
+                                }
+
+                                Surface(
+                                    shape = RoundedCornerShape(10.dp),
+                                    color = if (history.jumlahPerubahan >= 0) Color(0xFFE8F5E9) else Color(0xFFFFEBEE)
+                                ) {
+                                    Text(
+                                        text = if (history.jumlahPerubahan >= 0) "+${history.jumlahPerubahan}" else "${history.jumlahPerubahan}",
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = 14.sp,
+                                        color = if (history.jumlahPerubahan >= 0) Color(0xFF2E7D32) else Color(0xFFD32F2F),
+                                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            } else if (selectedTabIndex == 3) {
+                // Tab 3: Kas & Mutasi
+                if (filteredCashMutations.isEmpty()) {
+                    item {
+                        Card(
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(12.dp),
+                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+                        ) {
+                            Text(
+                                text = "Tidak ada mutasi kas ditemukan pada rentang tanggal ini.",
+                                modifier = Modifier.padding(16.dp),
+                                fontSize = 13.sp,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+                } else {
+                    items(filteredCashMutations, key = { it.id }) { mutation ->
+                        Card(
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(12.dp),
+                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                            elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
+                        ) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(14.dp),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        Surface(
+                                            shape = RoundedCornerShape(4.dp),
+                                            color = if (mutation.jenis == "MASUK") Color(0xFFE8F5E9) else Color(0xFFFFEBEE),
+                                            modifier = Modifier.padding(end = 6.dp)
+                                        ) {
+                                            Text(
+                                                text = "${mutation.accountType} • ${mutation.jenis}",
+                                                style = MaterialTheme.typography.labelSmall,
+                                                fontWeight = FontWeight.Bold,
+                                                color = if (mutation.jenis == "MASUK") Color(0xFF2E7D32) else Color(0xFFD32F2F),
+                                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                            )
+                                        }
+                                        Text(
+                                            text = mutation.kategori,
+                                            fontWeight = FontWeight.Bold,
+                                            fontSize = 14.sp
+                                        )
+                                    }
+                                    Spacer(modifier = Modifier.height(4.dp))
+                                    Text(
+                                        text = "Tanggal: ${Formatters.formatDateToIndonesian(mutation.tanggal)} • Saldo: ${Formatters.formatRupiah(mutation.saldoSesudah)}",
+                                        fontSize = 12.sp,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                    if (mutation.keterangan.isNotBlank()) {
+                                        Text(
+                                            text = "Ket: ${mutation.keterangan}",
+                                            fontSize = 11.sp,
+                                            color = MaterialTheme.colorScheme.outline
+                                        )
+                                    }
+                                }
+
+                                Text(
+                                    text = if (mutation.jenis == "MASUK") "+${Formatters.formatRupiah(mutation.nominal)}" else "-${Formatters.formatRupiah(mutation.nominal)}",
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 14.sp,
+                                    color = if (mutation.jenis == "MASUK") Color(0xFF2E7D32) else Color(0xFFD32F2F)
+                                )
+                            }
+                        }
+                    }
+                }
             } else {
-                // Tab 2: Rekapan Barang Masuk
+                // Tab 4: Rekapan Barang Masuk (Faktur Supplier)
                 if (filteredIncomingTransactions.isEmpty()) {
                     item {
                         Card(
@@ -710,7 +932,7 @@ fun MenuRekapScreen(
                             colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
                         ) {
                             Text(
-                                text = "Tidak ada riwayat barang masuk tersimpan.",
+                                text = "Tidak ada riwayat barang masuk tersimpan pada rentang tanggal ini.",
                                 modifier = Modifier.padding(16.dp),
                                 fontSize = 13.sp,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant

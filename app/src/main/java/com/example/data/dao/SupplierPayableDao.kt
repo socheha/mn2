@@ -46,4 +46,16 @@ interface SupplierPayableDao {
 
     @Query("SELECT * FROM supplier_payments WHERE hutangId = :hutangId ORDER BY timestamp DESC")
     fun getPaymentsByPayable(hutangId: Long): Flow<List<SupplierPaymentEntity>>
+
+    @Query("SELECT * FROM supplier_payments WHERE id = :paymentId")
+    suspend fun getPaymentById(paymentId: Long): SupplierPaymentEntity?
+
+    @Query("DELETE FROM supplier_payments WHERE id = :paymentId")
+    suspend fun deletePayment(paymentId: Long)
+
+    @Query("DELETE FROM supplier_payables WHERE id = :id")
+    suspend fun deletePayable(id: Long)
+
+    @Query("DELETE FROM supplier_payments WHERE hutangId = :hutangId")
+    suspend fun deletePaymentsByPayable(hutangId: Long)
 }

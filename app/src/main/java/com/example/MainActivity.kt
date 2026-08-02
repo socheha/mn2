@@ -1,7 +1,10 @@
 package com.example
 
+import android.app.Activity
 import android.os.Bundle
+import android.widget.Toast
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.viewModels
@@ -22,6 +25,7 @@ import androidx.compose.material.icons.filled.Assessment
 import androidx.compose.material.icons.filled.Dashboard
 import androidx.compose.material.icons.filled.Inventory2
 import androidx.compose.material.icons.filled.LocalShipping
+import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.MoneyOff
 import androidx.compose.material.icons.filled.PointOfSale
 import androidx.compose.material.icons.filled.Store
@@ -77,6 +81,8 @@ import com.example.ui.screens.MenuPiutangPelangganScreen
 import com.example.ui.screens.MenuRekapScreen
 import com.example.ui.screens.MenuStokTokoScreen
 import com.example.ui.theme.SmartStockTheme
+import androidx.compose.runtime.collectAsState
+import androidx.compose.foundation.isSystemInDarkTheme
 
 data class NavTabItem(
     val route: String,
@@ -88,14 +94,59 @@ class MainActivity : ComponentActivity() {
 
     private val viewModel: MainViewModel by viewModels()
 
+    override fun onResume() {
+        super.onResume()
+        viewModel.checkSessionLock()
+    }
+
     @OptIn(ExperimentalMaterial3Api::class)
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
 
         setContent {
-            SmartStockTheme {
+            val themeMode by viewModel.themeMode.collectAsState()
+            val isDarkTheme = when (themeMode) {
+                com.example.util.ThemePreferenceManager.MODE_DARK -> true
+                com.example.util.ThemePreferenceManager.MODE_LIGHT -> false
+                else -> isSystemInDarkTheme()
+            }
+
+            SmartStockTheme(darkTheme = isDarkTheme) {
+                val isAppLocked by viewModel.isAppLocked.collectAsState()
+                val isPinEnabled by viewModel.isPinEnabled.collectAsState()
+
                 var currentRoute by remember { mutableStateOf("dashboard") }
+                var backPressCount by remember { mutableStateOf(0) }
+                var lastBackPressTime by remember { mutableStateOf(0L) }
+
+                if (isAppLocked) {
+                    com.example.ui.components.PinLockScreen(viewModel = viewModel)
+                } else {
+                    BackHandler {
+                        val currentTime = System.currentTimeMillis()
+                        if (currentTime - lastBackPressTime > 2000) {
+                            backPressCount = 1
+                        } else {
+                            backPressCount++
+                        }
+                        lastBackPressTime = currentTime
+
+                        if (backPressCount >= 3) {
+                            Toast.makeText(this@MainActivity, "Aplikasi ditutup", Toast.LENGTH_SHORT).show()
+                            finish()
+                        } else {
+                            if (currentRoute != "dashboard") {
+                                currentRoute = "dashboard"
+                            }
+                            val remaining = 3 - backPressCount
+                            Toast.makeText(
+                                this@MainActivity,
+                                "Tekan kembali $remaining kali lagi untuk keluar",
+                                Toast.LENGTH_SHORT
+                            ).show()
+                        }
+                    }
 
                 val navItems = listOf(
                     NavTabItem("dashboard", "Dashboard", Icons.Default.Dashboard),
@@ -142,6 +193,18 @@ class MainActivity : ComponentActivity() {
                                 }
                             },
                             actions = {
+                                if (isPinEnabled) {
+                                    IconButton(
+                                        onClick = { viewModel.lockApp() },
+                                        modifier = Modifier.testTag("top_bar_lock_button")
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.Lock,
+                                            contentDescription = "Kunci Aplikasi",
+                                            tint = Color.White
+                                        )
+                                    }
+                                }
                                 IconButton(
                                     onClick = { currentRoute = "dashboard" },
                                     modifier = Modifier.testTag("top_bar_dashboard_button")
@@ -228,6 +291,7 @@ class MainActivity : ComponentActivity() {
                             "hutang" -> MenuHutangSupplierScreen(viewModel = viewModel)
                             "rekap" -> MenuRekapScreen(viewModel = viewModel)
                             "pengaturan" -> MenuPengaturanScreen(viewModel = viewModel)
+                        }
                         }
                     }
                 }

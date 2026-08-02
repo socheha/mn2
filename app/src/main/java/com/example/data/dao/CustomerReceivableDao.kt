@@ -46,4 +46,16 @@ interface CustomerReceivableDao {
 
     @Query("SELECT * FROM customer_payments WHERE piutangId = :piutangId ORDER BY timestamp DESC")
     fun getPaymentsByReceivable(piutangId: Long): Flow<List<CustomerPaymentEntity>>
+
+    @Query("SELECT * FROM customer_payments WHERE id = :paymentId")
+    suspend fun getPaymentById(paymentId: Long): CustomerPaymentEntity?
+
+    @Query("DELETE FROM customer_payments WHERE id = :paymentId")
+    suspend fun deletePayment(paymentId: Long)
+
+    @Query("DELETE FROM customer_receivables WHERE id = :id")
+    suspend fun deleteReceivable(id: Long)
+
+    @Query("DELETE FROM customer_payments WHERE piutangId = :piutangId")
+    suspend fun deletePaymentsByReceivable(piutangId: Long)
 }

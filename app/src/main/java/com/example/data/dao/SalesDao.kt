@@ -42,6 +42,9 @@ interface SalesDao {
     @Query("SELECT COALESCE(SUM(keuntungan), 0.0) FROM sales_transactions WHERE tanggal = :todayDate")
     fun getProfitForDate(todayDate: String): Flow<Double>
 
+    @Query("SELECT COUNT(*) FROM sales_transactions WHERE tanggal = :todayDate")
+    fun getTransactionCountForDate(todayDate: String): Flow<Int>
+
     @Query("SELECT COALESCE(SUM(totalUangPenjualan), 0.0) FROM sales_transactions WHERE tanggal >= :startDate AND tanggal <= :endDate")
     fun getRevenueBetweenDates(startDate: String, endDate: String): Flow<Double>
 
@@ -56,4 +59,13 @@ interface SalesDao {
 
     @Query("SELECT * FROM sales_items WHERE transactionId = :transactionId")
     suspend fun getItemsForTransaction(transactionId: Long): List<SalesItemEntity>
+
+    @Query("SELECT * FROM sales_transactions WHERE id = :id")
+    suspend fun getTransactionById(id: Long): SalesTransactionEntity?
+
+    @Query("DELETE FROM sales_transactions WHERE id = :id")
+    suspend fun deleteTransaction(id: Long)
+
+    @Query("DELETE FROM sales_items WHERE transactionId = :transactionId")
+    suspend fun deleteItemsForTransaction(transactionId: Long)
 }

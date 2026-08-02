@@ -80,6 +80,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.ui.MainViewModel
+import com.example.ui.components.CalculatorDialog
 import com.example.ui.components.DatePickerField
 import com.example.ui.components.SearchableItemAutocomplete
 import com.example.util.Formatters
@@ -94,6 +95,9 @@ fun MenuPenjualanHarianScreen(
     val salesCart by viewModel.salesCart.collectAsStateWithLifecycle()
     val selectedStoreForSales by viewModel.selectedStoreForSales.collectAsStateWithLifecycle()
     val allCashAccounts by viewModel.allCashAccounts.collectAsStateWithLifecycle()
+    val allSalesTransactions by viewModel.allSalesTransactions.collectAsStateWithLifecycle()
+
+    var salesTransactionToCancel by remember { mutableStateOf<com.example.data.entity.SalesTransactionEntity?>(null) }
 
     val registeredTransferAccounts = remember(allCashAccounts) {
         val nonCash = allCashAccounts.filter { it.accountType != "TUNAI" }.map { com.example.data.entity.AccountTypeInfo(it.accountType, it.accountName, "BANK") }
@@ -109,8 +113,11 @@ fun MenuPenjualanHarianScreen(
     // State khusus Penjualan Rinci & Toko Terafiliasi
     var namaTokoPelanggan by remember { mutableStateOf("") }
     var nomorHpPelanggan by remember { mutableStateOf("") }
-    var selectedMetodePembayaran by remember { mutableStateOf("Tunai") } // "Tunai", "Transfer", "Piutang"
+    var selectedMetodePembayaran by remember { mutableStateOf("Tunai") } // "Tunai", "Transfer", "Tunai & Transfer", "Piutang"
     var selectedTransferAccountCode by remember { mutableStateOf("BCA") } // "BCA", "MANDIRI", "BRI", "BNI", "BANK_LAIN", "GOPAY", "OVO", "DANA", "SHOPEEPAY", "LINKAJA"
+    var nominalTunaiSplitInput by remember { mutableStateOf("") }
+    var nominalTransferSplitInput by remember { mutableStateOf("") }
+    var calcTargetField by remember { mutableStateOf<String?>(null) } // "nota_total", "custom_total", "dp_money", "split_tunai", "split_transfer", or cart item ID
     val isPiutangPayment = remember(selectedMetodePembayaran) { selectedMetodePembayaran == "Piutang" }
     var nominalUangMukaInput by remember { mutableStateOf("") }
     var jatuhTempoInput by remember { mutableStateOf(Formatters.getAddDaysDate(tanggal, 14)) }
@@ -389,15 +396,13 @@ fun MenuPenjualanHarianScreen(
                             Spacer(modifier = Modifier.height(6.dp))
 
                             Row(
-                                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                horizontalArrangement = Arrangement.spacedBy(4.dp),
                                 modifier = Modifier.fillMaxWidth()
                             ) {
                                 FilterChip(
                                     selected = selectedMetodePembayaran == "Tunai",
                                     onClick = { selectedMetodePembayaran = "Tunai" },
-                                    label = {
-                                        Text("Tunai", fontSize = 11.sp)
-                                    },
+                                    label = { Text("Tunai", fontSize = 10.sp) },
                                     colors = FilterChipDefaults.filterChipColors(
                                         selectedContainerColor = Color(0xFFE8F5E9),
                                         selectedLabelColor = Color(0xFF2E7D32)
@@ -408,9 +413,7 @@ fun MenuPenjualanHarianScreen(
                                 FilterChip(
                                     selected = selectedMetodePembayaran == "Transfer",
                                     onClick = { selectedMetodePembayaran = "Transfer" },
-                                    label = {
-                                        Text("Transfer", fontSize = 11.sp)
-                                    },
+                                    label = { Text("Transfer", fontSize = 10.sp) },
                                     colors = FilterChipDefaults.filterChipColors(
                                         selectedContainerColor = Color(0xFFE3F2FD),
                                         selectedLabelColor = Color(0xFF1565C0)
@@ -419,11 +422,20 @@ fun MenuPenjualanHarianScreen(
                                 )
 
                                 FilterChip(
+                                    selected = selectedMetodePembayaran == "Tunai & Transfer",
+                                    onClick = { selectedMetodePembayaran = "Tunai & Transfer" },
+                                    label = { Text("Tunai & Transfer", fontSize = 10.sp) },
+                                    colors = FilterChipDefaults.filterChipColors(
+                                        selectedContainerColor = Color(0xFFFFF3E0),
+                                        selectedLabelColor = Color(0xFFE65100)
+                                    ),
+                                    modifier = Modifier.weight(1.3f)
+                                )
+
+                                FilterChip(
                                     selected = selectedMetodePembayaran == "Piutang",
                                     onClick = { selectedMetodePembayaran = "Piutang" },
-                                    label = {
-                                        Text("Piutang", fontSize = 11.sp)
-                                    },
+                                    label = { Text("Piutang", fontSize = 10.sp) },
                                     colors = FilterChipDefaults.filterChipColors(
                                         selectedContainerColor = Color(0xFFFFEBEE),
                                         selectedLabelColor = Color(0xFFC62828)
@@ -432,7 +444,7 @@ fun MenuPenjualanHarianScreen(
                                 )
                             }
 
-                             if (selectedMetodePembayaran == "Transfer") {
+                            if (selectedMetodePembayaran == "Transfer") {
                                 Spacer(modifier = Modifier.height(10.dp))
                                 Text(
                                     text = "Pilih Rekening Bank / E-Wallet Penerima:",
@@ -458,6 +470,72 @@ fun MenuPenjualanHarianScreen(
                                         )
                                     }
                                 }
+                            } else if (selectedMetodePembayaran == "Tunai & Transfer") {
+                                Column(
+                                    modifier = Modifier.padding(top = 8.dp),
+                                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                                ) {
+                                    Text(
+                                        text = "Rincian Pembayaran Sebagian Tunai & Sebagian Transfer:",
+                                        fontSize = 12.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = Color(0xFFE65100)
+                                    )
+
+                                    Text(
+                                        text = "1. Pilih Rekening Bank / E-Wallet Penerima Transfer:",
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.SemiBold
+                                    )
+                                    androidx.compose.foundation.lazy.LazyRow(
+                                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                        modifier = Modifier.fillMaxWidth()
+                                    ) {
+                                        items(registeredTransferAccounts) { acc ->
+                                            FilterChip(
+                                                selected = selectedTransferAccountCode == acc.type,
+                                                onClick = { selectedTransferAccountCode = acc.type },
+                                                label = { Text(acc.name, fontSize = 11.sp) },
+                                                colors = FilterChipDefaults.filterChipColors(
+                                                    selectedContainerColor = Color(0xFFE3F2FD),
+                                                    selectedLabelColor = Color(0xFF1565C0)
+                                                )
+                                            )
+                                        }
+                                    }
+
+                                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                        OutlinedTextField(
+                                            value = nominalTunaiSplitInput,
+                                            onValueChange = { nominalTunaiSplitInput = it },
+                                            label = { Text("Nominal Tunai (Rp)") },
+                                            placeholder = { Text("Contoh: 50000") },
+                                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                                            singleLine = true,
+                                            trailingIcon = {
+                                                IconButton(onClick = { calcTargetField = "split_tunai" }) {
+                                                    Icon(Icons.Default.Calculate, contentDescription = "Kalkulator", tint = MaterialTheme.colorScheme.primary)
+                                                }
+                                            },
+                                            modifier = Modifier.weight(1f)
+                                        )
+
+                                        OutlinedTextField(
+                                            value = nominalTransferSplitInput,
+                                            onValueChange = { nominalTransferSplitInput = it },
+                                            label = { Text("Nominal Transfer (Rp)") },
+                                            placeholder = { Text("Contoh: 100000") },
+                                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                                            singleLine = true,
+                                            trailingIcon = {
+                                                IconButton(onClick = { calcTargetField = "split_transfer" }) {
+                                                    Icon(Icons.Default.Calculate, contentDescription = "Kalkulator", tint = MaterialTheme.colorScheme.primary)
+                                                }
+                                            },
+                                            modifier = Modifier.weight(1f)
+                                        )
+                                    }
+                                }
                             }
 
                             if (isPiutangPayment) {
@@ -469,6 +547,11 @@ fun MenuPenjualanHarianScreen(
                                     placeholder = { Text("0") },
                                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                                     singleLine = true,
+                                    trailingIcon = {
+                                        IconButton(onClick = { calcTargetField = "dp_money" }) {
+                                            Icon(Icons.Default.Calculate, contentDescription = "Kalkulator", tint = MaterialTheme.colorScheme.primary)
+                                        }
+                                    },
                                     modifier = Modifier.fillMaxWidth()
                                 )
 
@@ -591,19 +674,29 @@ fun MenuPenjualanHarianScreen(
                         SearchableItemAutocomplete(
                             itemsList = allItemsList,
                             draftItemQuantities = draftQuantitiesMap,
-                            onItemSelected = { selectedItem ->
+                            isPenjualanMode = true,
+                            onItemSelectedWithQty = { selectedItem, qty ->
                                 if (selectedItem.stok <= 0) {
                                     Toast.makeText(context, "Stok '${selectedItem.namaBarang}' habis (0)!", Toast.LENGTH_SHORT).show()
                                 } else {
                                     val currentQty = draftQuantitiesMap[selectedItem.id] ?: 0
-                                    viewModel.addSalesCartItem(selectedItem)
-                                    val newQty = currentQty + 1
-                                    val toastMsg = if (currentQty > 0) {
-                                        "'${selectedItem.namaBarang}' ditambah (+1) di draf (Total: $newQty)"
+                                    val maxAvailable = selectedItem.stok - currentQty
+                                    if (qty > maxAvailable) {
+                                        Toast.makeText(
+                                            context,
+                                            "Stok tidak mencukupi! Maksimal dapat ditambah $maxAvailable unit lagi (stok: ${selectedItem.stok}, draf: $currentQty).",
+                                            Toast.LENGTH_LONG
+                                        ).show()
                                     } else {
-                                        "'${selectedItem.namaBarang}' dimasukkan ke draf"
+                                        viewModel.addSalesCartItem(selectedItem, qty)
+                                        val newQty = currentQty + qty
+                                        val toastMsg = if (currentQty > 0) {
+                                            "'${selectedItem.namaBarang}' ditambah (+$qty) di draf (Total: $newQty)"
+                                        } else {
+                                            "'${selectedItem.namaBarang}' x$qty dimasukkan ke draf"
+                                        }
+                                        Toast.makeText(context, toastMsg, Toast.LENGTH_SHORT).show()
                                     }
-                                    Toast.makeText(context, toastMsg, Toast.LENGTH_SHORT).show()
                                 }
                             }
                         )
@@ -844,7 +937,8 @@ fun MenuPenjualanHarianScreen(
                                         OutlinedTextField(
                                             value = if (cartItem.jumlahTerjual == 0) "" else cartItem.jumlahTerjual.toString(),
                                             onValueChange = { input ->
-                                                val qty = if (input.isBlank()) 0 else (input.toIntOrNull() ?: 0)
+                                                val filtered = input.filter { char -> char.isDigit() }
+                                                val qty = if (filtered.isBlank()) 0 else (filtered.toIntOrNull() ?: 0)
                                                 viewModel.updateSalesCartQuantity(cartItem.item.id, qty)
                                             },
                                             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
@@ -878,11 +972,21 @@ fun MenuPenjualanHarianScreen(
                                         OutlinedTextField(
                                             value = if (cartItem.hargaSatuan > 0) cartItem.hargaSatuan.toInt().toString() else "",
                                             onValueChange = { input ->
-                                                val price = input.toDoubleOrNull() ?: 0.0
+                                                val filtered = input.filter { char -> char.isDigit() }
+                                                val price = filtered.toDoubleOrNull() ?: 0.0
                                                 viewModel.updateSalesCartPrice(cartItem.item.id, price)
                                             },
                                             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                                             singleLine = true,
+                                            trailingIcon = {
+                                                IconButton(onClick = { calcTargetField = "item_${cartItem.item.id}" }) {
+                                                    Icon(
+                                                        imageVector = Icons.Default.Calculate,
+                                                        contentDescription = "Kalkulator",
+                                                        tint = MaterialTheme.colorScheme.primary
+                                                    )
+                                                }
+                                            },
                                             modifier = Modifier.fillMaxWidth()
                                         )
                                     }
@@ -891,13 +995,25 @@ fun MenuPenjualanHarianScreen(
 
                             if (!isNotaTotalMode) {
                                 Spacer(modifier = Modifier.height(8.dp))
-                                Text(
-                                    text = "Subtotal: ${Formatters.formatRupiah(cartItem.jumlahTerjual * cartItem.hargaSatuan)}",
-                                    fontWeight = FontWeight.Bold,
-                                    fontSize = 13.sp,
-                                    color = MaterialTheme.colorScheme.primary,
-                                    modifier = Modifier.align(Alignment.End)
-                                )
+                                val itemProfit = (cartItem.hargaSatuan - cartItem.item.hargaModal) * cartItem.jumlahTerjual
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Text(
+                                        text = "Keuntungan Item: ${Formatters.formatRupiah(itemProfit)}",
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.SemiBold,
+                                        color = if (itemProfit >= 0) Color(0xFF2E7D32) else Color(0xFFC62828)
+                                    )
+                                    Text(
+                                        text = "Subtotal: ${Formatters.formatRupiah(cartItem.jumlahTerjual * cartItem.hargaSatuan)}",
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = 13.sp,
+                                        color = MaterialTheme.colorScheme.primary
+                                    )
+                                }
                             }
                         }
                     }
@@ -964,6 +1080,15 @@ fun MenuPenjualanHarianScreen(
                                 placeholder = { Text("Contoh: 350000") },
                                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                                 singleLine = true,
+                                trailingIcon = {
+                                    IconButton(onClick = { calcTargetField = "nota_total" }) {
+                                        Icon(
+                                            imageVector = Icons.Default.Calculate,
+                                            contentDescription = "Kalkulator",
+                                            tint = MaterialTheme.colorScheme.primary
+                                        )
+                                    }
+                                },
                                 modifier = Modifier.fillMaxWidth()
                             )
                             Text(
@@ -982,7 +1107,7 @@ fun MenuPenjualanHarianScreen(
                             )
                             Spacer(modifier = Modifier.height(4.dp))
                             Row(
-                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                horizontalArrangement = Arrangement.spacedBy(6.dp),
                                 modifier = Modifier.fillMaxWidth()
                             ) {
                                 FilterChip(
@@ -998,12 +1123,22 @@ fun MenuPenjualanHarianScreen(
                                 FilterChip(
                                     selected = selectedMetodePembayaran == "Transfer",
                                     onClick = { selectedMetodePembayaran = "Transfer" },
-                                    label = { Text("Transfer Bank / E-Wallet", fontSize = 11.sp) },
+                                    label = { Text("Transfer", fontSize = 11.sp) },
                                     colors = FilterChipDefaults.filterChipColors(
                                         selectedContainerColor = Color(0xFFE3F2FD),
                                         selectedLabelColor = Color(0xFF1565C0)
                                     ),
                                     modifier = Modifier.weight(1f)
+                                )
+                                FilterChip(
+                                    selected = selectedMetodePembayaran == "Tunai & Transfer",
+                                    onClick = { selectedMetodePembayaran = "Tunai & Transfer" },
+                                    label = { Text("Tunai & Transfer", fontSize = 11.sp) },
+                                    colors = FilterChipDefaults.filterChipColors(
+                                        selectedContainerColor = Color(0xFFFFF3E0),
+                                        selectedLabelColor = Color(0xFFE65100)
+                                    ),
+                                    modifier = Modifier.weight(1.2f)
                                 )
                             }
 
@@ -1032,6 +1167,97 @@ fun MenuPenjualanHarianScreen(
                                         )
                                     }
                                 }
+                            } else if (selectedMetodePembayaran == "Tunai & Transfer") {
+                                Column(
+                                    modifier = Modifier.padding(top = 8.dp),
+                                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                                ) {
+                                    Text(
+                                        text = "Rincian Pembayaran Sebagian Tunai & Sebagian Transfer:",
+                                        fontSize = 12.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = Color(0xFFE65100)
+                                    )
+
+                                    Text(
+                                        text = "1. Pilih Bank / E-Wallet Penerima Transfer:",
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.SemiBold
+                                    )
+                                    androidx.compose.foundation.lazy.LazyRow(
+                                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                        modifier = Modifier.fillMaxWidth()
+                                    ) {
+                                        items(registeredTransferAccounts) { acc ->
+                                            FilterChip(
+                                                selected = selectedTransferAccountCode == acc.type,
+                                                onClick = { selectedTransferAccountCode = acc.type },
+                                                label = { Text(acc.name, fontSize = 11.sp) },
+                                                colors = FilterChipDefaults.filterChipColors(
+                                                    selectedContainerColor = Color(0xFFE3F2FD),
+                                                    selectedLabelColor = Color(0xFF1565C0)
+                                                )
+                                            )
+                                        }
+                                    }
+
+                                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                        OutlinedTextField(
+                                            value = nominalTunaiSplitInput,
+                                            onValueChange = { nominalTunaiSplitInput = it },
+                                            label = { Text("Nominal Tunai (Rp)") },
+                                            placeholder = { Text("Contoh: 50000") },
+                                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                                            singleLine = true,
+                                            trailingIcon = {
+                                                IconButton(onClick = { calcTargetField = "split_tunai" }) {
+                                                    Icon(Icons.Default.Calculate, contentDescription = "Kalkulator", tint = MaterialTheme.colorScheme.primary)
+                                                }
+                                            },
+                                            modifier = Modifier.weight(1f)
+                                        )
+
+                                        OutlinedTextField(
+                                            value = nominalTransferSplitInput,
+                                            onValueChange = { nominalTransferSplitInput = it },
+                                            label = { Text("Nominal Transfer (Rp)") },
+                                            placeholder = { Text("Contoh: 100000") },
+                                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                                            singleLine = true,
+                                            trailingIcon = {
+                                                IconButton(onClick = { calcTargetField = "split_transfer" }) {
+                                                    Icon(Icons.Default.Calculate, contentDescription = "Kalkulator", tint = MaterialTheme.colorScheme.primary)
+                                                }
+                                            },
+                                            modifier = Modifier.weight(1f)
+                                        )
+                                    }
+
+                                    val tSplit = nominalTunaiSplitInput.toDoubleOrNull() ?: 0.0
+                                    val trSplit = nominalTransferSplitInput.toDoubleOrNull() ?: 0.0
+                                    val sumSplit = tSplit + trSplit
+                                    val totalNotaVal = totalUangNotaInput.toDoubleOrNull() ?: 0.0
+
+                                    Surface(
+                                        color = if (totalNotaVal > 0 && sumSplit == totalNotaVal) Color(0xFFE8F5E9) else Color(0xFFFFF3E0),
+                                        shape = RoundedCornerShape(8.dp),
+                                        modifier = Modifier.fillMaxWidth()
+                                    ) {
+                                        Column(modifier = Modifier.padding(10.dp)) {
+                                            Text(
+                                                text = "Masuk Kas Tunai: ${Formatters.formatRupiah(tSplit)} | Masuk $selectedTransferAccountCode: ${Formatters.formatRupiah(trSplit)}",
+                                                fontSize = 11.sp,
+                                                fontWeight = FontWeight.SemiBold,
+                                                color = if (totalNotaVal > 0 && sumSplit == totalNotaVal) Color(0xFF2E7D32) else Color(0xFFE65100)
+                                            )
+                                            Text(
+                                                text = "Total Rincian: ${Formatters.formatRupiah(sumSplit)}",
+                                                fontSize = 11.sp,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                                            )
+                                        }
+                                    }
+                                }
                             }
                         } else {
                             OutlinedTextField(
@@ -1041,6 +1267,15 @@ fun MenuPenjualanHarianScreen(
                                 placeholder = { Text(Formatters.formatRupiah(calculatedTotal)) },
                                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                                 singleLine = true,
+                                trailingIcon = {
+                                    IconButton(onClick = { calcTargetField = "custom_total" }) {
+                                        Icon(
+                                            imageVector = Icons.Default.Calculate,
+                                            contentDescription = "Kalkulator",
+                                            tint = MaterialTheme.colorScheme.primary
+                                        )
+                                    }
+                                },
                                 modifier = Modifier.fillMaxWidth()
                             )
                             Text(
@@ -1051,7 +1286,67 @@ fun MenuPenjualanHarianScreen(
                             )
                         }
 
+                        // --- Kartu Estimasi Keuntungan (Laba Clean) ---
+                        val totalHppModal = remember(salesCart) { salesCart.sumOf { it.jumlahTerjual * it.item.hargaModal } }
+                        val finalEstimatedRevenue = if (isNotaTotalMode) {
+                            totalUangNotaInput.toDoubleOrNull() ?: calculatedTotal
+                        } else {
+                            customTotalUang.toDoubleOrNull() ?: calculatedTotal
+                        }
+                        val estimatedProfit = finalEstimatedRevenue - totalHppModal
 
+                        Spacer(modifier = Modifier.height(10.dp))
+                        Surface(
+                            shape = RoundedCornerShape(10.dp),
+                            color = if (estimatedProfit >= 0) Color(0xFFE8F5E9) else Color(0xFFFFEBEE),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Column(modifier = Modifier.padding(12.dp)) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Text(
+                                        text = "Total Modal (HPP):",
+                                        fontSize = 12.sp,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                    Text(
+                                        text = Formatters.formatRupiah(totalHppModal),
+                                        fontSize = 12.sp,
+                                        fontWeight = FontWeight.SemiBold
+                                    )
+                                }
+                                Spacer(modifier = Modifier.height(4.dp))
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        Icon(
+                                            imageVector = Icons.Default.Sell,
+                                            contentDescription = null,
+                                            tint = if (estimatedProfit >= 0) Color(0xFF2E7D32) else Color(0xFFC62828),
+                                            modifier = Modifier.size(16.dp).padding(end = 4.dp)
+                                        )
+                                        Text(
+                                            text = "Estimasi Keuntungan Penjualan:",
+                                            fontSize = 13.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            color = if (estimatedProfit >= 0) Color(0xFF1B5E20) else Color(0xFFB71C1C)
+                                        )
+                                    }
+                                    Text(
+                                        text = Formatters.formatRupiah(estimatedProfit),
+                                        fontSize = 15.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = if (estimatedProfit >= 0) Color(0xFF2E7D32) else Color(0xFFC62828)
+                                    )
+                                }
+                            }
+                        }
 
                         Spacer(modifier = Modifier.height(12.dp))
 
@@ -1084,21 +1379,26 @@ fun MenuPenjualanHarianScreen(
                                     return@Button
                                 }
 
+                                val tunaiSplit = nominalTunaiSplitInput.toDoubleOrNull() ?: 0.0
+                                val transferSplit = nominalTransferSplitInput.toDoubleOrNull() ?: 0.0
+
                                 val finalMoney = if (isNotaTotalMode) {
                                     val money = totalUangNotaInput.toDoubleOrNull() ?: 0.0
-                                    if (money <= 0) {
+                                    if (money <= 0 && selectedMetodePembayaran != "Tunai & Transfer") {
                                         Toast.makeText(context, "Mohon masukkan Total Uang Nota Penjualan!", Toast.LENGTH_SHORT).show()
                                         return@Button
                                     }
-                                    money
+                                    if (selectedMetodePembayaran == "Tunai & Transfer") tunaiSplit + transferSplit else money
                                 } else {
-                                    customTotalUang.toDoubleOrNull() ?: calculatedTotal
+                                    if (selectedMetodePembayaran == "Tunai & Transfer") tunaiSplit + transferSplit else (customTotalUang.toDoubleOrNull() ?: calculatedTotal)
                                 }
 
                                 val dpMoney = nominalUangMukaInput.toDoubleOrNull() ?: 0.0
 
                                 val paymentMethodToSave = if (selectedMetodePembayaran == "Transfer") {
                                     "Transfer"
+                                } else if (selectedMetodePembayaran == "Tunai & Transfer") {
+                                    "Tunai & Transfer"
                                 } else if (!isNotaTotalMode && isPiutangPayment) {
                                     "Piutang"
                                 } else {
@@ -1115,7 +1415,9 @@ fun MenuPenjualanHarianScreen(
                                     uangMuka = dpMoney,
                                     jatuhTempo = if (isPiutangPayment) jatuhTempoInput else "",
                                     metodePembayaran = paymentMethodToSave,
-                                    targetAccountCode = if (selectedMetodePembayaran == "Transfer") selectedTransferAccountCode else "TUNAI",
+                                    targetAccountCode = if (selectedMetodePembayaran == "Transfer" || selectedMetodePembayaran == "Tunai & Transfer") selectedTransferAccountCode else "TUNAI",
+                                    nominalTunaiSplit = if (selectedMetodePembayaran == "Tunai & Transfer") tunaiSplit else 0.0,
+                                    nominalTransferSplit = if (selectedMetodePembayaran == "Tunai & Transfer") transferSplit else 0.0,
                                     onSuccess = {
                                         totalUangNotaInput = ""
                                         customTotalUang = ""
@@ -1123,6 +1425,8 @@ fun MenuPenjualanHarianScreen(
                                         namaTokoPelanggan = ""
                                         nomorHpPelanggan = ""
                                         nominalUangMukaInput = ""
+                                        nominalTunaiSplitInput = ""
+                                        nominalTransferSplitInput = ""
                                         selectedMetodePembayaran = "Tunai"
 
                                         val message = if (!isNotaTotalMode && isPiutangPayment) {
@@ -1157,7 +1461,119 @@ fun MenuPenjualanHarianScreen(
                     }
                 }
             }
+
+            // Recent Sales History & Cancellation Card
+            item {
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(14.dp),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                    elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
+                ) {
+                    Column(modifier = Modifier.padding(16.dp)) {
+                        Text(
+                            text = "Riwayat Transaksi Penjualan & Pembatalan",
+                            style = MaterialTheme.typography.titleSmall,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text(
+                            text = "Daftar nota penjualan terbaru. Klik 'Batalkan' untuk membatalkan transaksi dan mengembalikan stok.",
+                            fontSize = 11.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        Spacer(modifier = Modifier.height(10.dp))
+
+                        if (allSalesTransactions.isEmpty()) {
+                            Text(
+                                text = "Belum ada riwayat transaksi penjualan.",
+                                fontSize = 12.sp,
+                                color = MaterialTheme.colorScheme.outline,
+                                modifier = Modifier.padding(vertical = 8.dp)
+                            )
+                        } else {
+                            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                allSalesTransactions.take(10).forEach { tx ->
+                                    Card(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)),
+                                        shape = RoundedCornerShape(8.dp)
+                                    ) {
+                                        Row(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .padding(10.dp),
+                                            horizontalArrangement = Arrangement.SpaceBetween,
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            Column(modifier = Modifier.weight(1f)) {
+                                                Text(
+                                                    text = "Nota #${tx.id} • ${Formatters.formatRupiah(tx.totalUangPenjualan)}",
+                                                    fontWeight = FontWeight.Bold,
+                                                    fontSize = 13.sp,
+                                                    color = Color(0xFF2E7D32)
+                                                )
+                                                Text(
+                                                    text = "Tgl: ${Formatters.formatDateToIndonesian(tx.tanggal)} | ${tx.namaToko} | ${tx.metodePembayaran}",
+                                                    fontSize = 11.sp,
+                                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                                )
+                                                if (tx.catatan.isNotBlank()) {
+                                                    Text(
+                                                        text = tx.catatan,
+                                                        fontSize = 11.sp,
+                                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                                    )
+                                                }
+                                            }
+
+                                            TextButton(
+                                                onClick = { salesTransactionToCancel = tx },
+                                                colors = ButtonDefaults.textButtonColors(contentColor = Color(0xFFD32F2F))
+                                            ) {
+                                                Text("Batalkan", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
         }
+    }
+
+    // Confirmation Dialog for Sales Transaction Cancellation
+    salesTransactionToCancel?.let { tx ->
+        AlertDialog(
+            onDismissRequest = { salesTransactionToCancel = null },
+            title = { Text("Batalkan Transaksi Penjualan?", fontWeight = FontWeight.Bold, color = Color(0xFFD32F2F)) },
+            text = {
+                Text(
+                    "Apakah Anda yakin ingin membatalkan Nota Penjualan #${tx.id} sebesar ${Formatters.formatRupiah(tx.totalUangPenjualan)}?\n\nSemua stok barang pada nota ini akan dikembalikan ke inventaris toko dan saldo kas/bank terkait akan disesuaikan secara otomatis."
+                )
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        viewModel.cancelSalesTransaction(tx.id) {
+                            salesTransactionToCancel = null
+                            Toast.makeText(context, "Nota Penjualan #${tx.id} berhasil dibatalkan dan stok dikembalikan!", Toast.LENGTH_SHORT).show()
+                        }
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFD32F2F))
+                ) {
+                    Text("Ya, Batalkan Penjualan", fontWeight = FontWeight.Bold)
+                }
+            },
+            dismissButton = {
+                OutlinedButton(onClick = { salesTransactionToCancel = null }) {
+                    Text("Tidak")
+                }
+            }
+        )
     }
 
     // Dialog Cetak / Preview Nota Penjualan
@@ -1311,6 +1727,43 @@ fun MenuPenjualanHarianScreen(
                 viewModel.processScannedSalesReceipt(items) { count ->
                     Toast.makeText(context, "$count barang dari foto nota berhasil ditambahkan ke Penjualan!", Toast.LENGTH_SHORT).show()
                 }
+            }
+        )
+    }
+
+    calcTargetField?.let { target ->
+        val initialVal = when (target) {
+            "nota_total" -> totalUangNotaInput
+            "custom_total" -> customTotalUang
+            "dp_money" -> nominalUangMukaInput
+            "split_tunai" -> nominalTunaiSplitInput
+            "split_transfer" -> nominalTransferSplitInput
+            else -> {
+                val itemId = target.removePrefix("item_").toLongOrNull()
+                val itemInCart = salesCart.find { it.item.id == itemId }
+                if (itemInCart != null && itemInCart.hargaSatuan > 0) itemInCart.hargaSatuan.toInt().toString() else ""
+            }
+        }
+
+        CalculatorDialog(
+            initialValue = initialVal,
+            onDismiss = { calcTargetField = null },
+            onApplyResult = { result ->
+                val strVal = if (result % 1.0 == 0.0) result.toLong().toString() else result.toString()
+                when (target) {
+                    "nota_total" -> totalUangNotaInput = strVal
+                    "custom_total" -> customTotalUang = strVal
+                    "dp_money" -> nominalUangMukaInput = strVal
+                    "split_tunai" -> nominalTunaiSplitInput = strVal
+                    "split_transfer" -> nominalTransferSplitInput = strVal
+                    else -> {
+                        val itemId = target.removePrefix("item_").toLongOrNull()
+                        if (itemId != null) {
+                            viewModel.updateSalesCartPrice(itemId, result)
+                        }
+                    }
+                }
+                calcTargetField = null
             }
         )
     }

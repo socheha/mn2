@@ -42,6 +42,13 @@ data class CartItemSales(
     var hargaSatuan: Double = item.hargaModal
 )
 
+data class MonthlySalesData(
+    val yearMonth: String,
+    val monthLabel: String,
+    val totalSales: Double,
+    val totalProfit: Double
+)
+
 class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     private val db = AppDatabase.getDatabase(application)
@@ -52,6 +59,178 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val customerReceivableDao = db.customerReceivableDao()
     private val supplierPayableDao = db.supplierPayableDao()
     private val cashDao = db.cashDao()
+    private val syncQueueDao = db.syncQueueDao()
+
+    init {
+        // Automatic weekly backup check on app startup
+        viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            val autoBackupMsg = com.example.util.AutoBackupManager.checkAndPerformWeeklyAutoBackup(application, db)
+            if (autoBackupMsg != null) {
+                _lastAutoBackupTime.value = com.example.util.AutoBackupManager.getLastBackupTimestamp(application)
+            }
+        }
+    }
+
+    // --- Theme & Appearance States ---
+    private val _themeMode = MutableStateFlow(com.example.util.ThemePreferenceManager.getThemeMode(application))
+    val themeMode: StateFlow<String> = _themeMode.asStateFlow()
+
+    fun setThemeMode(mode: String) {
+        _themeMode.value = mode
+        com.example.util.ThemePreferenceManager.setThemeMode(getApplication(), mode)
+    }
+
+    // --- Security & PIN Lock States ---
+    private val _isPinEnabled = MutableStateFlow(com.example.util.SecurityManager.isPinEnabled(application))
+    val isPinEnabled: StateFlow<Boolean> = _isPinEnabled.asStateFlow()
+
+    private val _isAppLocked = MutableStateFlow(
+        if (com.example.util.SecurityManager.isPinEnabled(application)) {
+            !com.example.util.SecurityManager.isSessionValid(application)
+        } else {
+            false
+        }
+    )
+    val isAppLocked: StateFlow<Boolean> = _isAppLocked.asStateFlow()
+
+    private val _pinTimeoutMinutes = MutableStateFlow(com.example.util.SecurityManager.getPinTimeoutMinutes(application))
+    val pinTimeoutMinutes: StateFlow<Int> = _pinTimeoutMinutes.asStateFlow()
+
+    private val _securityQuestion = MutableStateFlow(com.example.util.SecurityManager.getSecurityQuestion(application))
+    val securityQuestion: StateFlow<String> = _securityQuestion.asStateFlow()
+
+    fun setPinTimeoutMinutes(minutes: Int) {
+        com.example.util.SecurityManager.setPinTimeoutMinutes(getApplication(), minutes)
+        _pinTimeoutMinutes.value = minutes
+    }
+
+    fun checkSessionLock() {
+        if (_isPinEnabled.value) {
+            if (!com.example.util.SecurityManager.isSessionValid(getApplication())) {
+                _isAppLocked.value = true
+            }
+        } else {
+            _isAppLocked.value = false
+        }
+    }
+
+    fun lockApp() {
+        if (_isPinEnabled.value) {
+            com.example.util.SecurityManager.clearUnlockSession(getApplication())
+            _isAppLocked.value = true
+        }
+    }
+
+    fun unlockApp(pinInput: String): Boolean {
+        val success = com.example.util.SecurityManager.verifyPin(getApplication(), pinInput)
+        if (success) {
+            com.example.util.SecurityManager.recordUnlock(getApplication())
+            _isAppLocked.value = false
+        }
+        return success
+    }
+
+    fun setupPin(pin: String, question: String, answer: String): Boolean {
+        val success = com.example.util.SecurityManager.setPin(getApplication(), pin, question, answer)
+        if (success) {
+            com.example.util.SecurityManager.recordUnlock(getApplication())
+            _isPinEnabled.value = true
+            _isAppLocked.value = false
+            _securityQuestion.value = com.example.util.SecurityManager.getSecurityQuestion(getApplication())
+        }
+        return success
+    }
+
+    fun disablePin(pinInput: String): Boolean {
+        val success = com.example.util.SecurityManager.disablePin(getApplication(), pinInput)
+        if (success) {
+            com.example.util.SecurityManager.clearUnlockSession(getApplication())
+            _isPinEnabled.value = false
+            _isAppLocked.value = false
+        }
+        return success
+    }
+
+    fun resetPinWithAnswer(answerInput: String, newPin: String): Boolean {
+        val success = com.example.util.SecurityManager.resetPinWithAnswer(getApplication(), answerInput, newPin)
+        if (success) {
+            com.example.util.SecurityManager.recordUnlock(getApplication())
+            _isPinEnabled.value = true
+            _isAppLocked.value = false
+        }
+        return success
+    }
+
+    fun verifyPinForAction(pinInput: String): Boolean {
+        return com.example.util.SecurityManager.verifyPin(getApplication(), pinInput)
+    }
+
+    // --- Weekly Auto Backup States ---
+    private val _isAutoBackupEnabled = MutableStateFlow(com.example.util.AutoBackupManager.isAutoBackupEnabled(application))
+    val isAutoBackupEnabled: StateFlow<Boolean> = _isAutoBackupEnabled.asStateFlow()
+
+    private val _lastAutoBackupTime = MutableStateFlow(com.example.util.AutoBackupManager.getLastBackupTimestamp(application))
+    val lastAutoBackupTime: StateFlow<Long> = _lastAutoBackupTime.asStateFlow()
+
+    fun setAutoBackupEnabled(enabled: Boolean) {
+        _isAutoBackupEnabled.value = enabled
+        com.example.util.AutoBackupManager.setAutoBackupEnabled(getApplication(), enabled)
+    }
+
+    fun runAutoBackupNow(onResult: (String) -> Unit) {
+        viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            val msg = com.example.util.AutoBackupManager.performAutoBackup(getApplication(), db)
+            _lastAutoBackupTime.value = com.example.util.AutoBackupManager.getLastBackupTimestamp(getApplication())
+            kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
+                onResult(msg)
+            }
+        }
+    }
+
+    fun getLocalAutoBackupFiles(): List<java.io.File> {
+        return com.example.util.AutoBackupManager.getLocalAutoBackupFiles(getApplication())
+    }
+
+    // --- Sync Queue & Offline Mode States ---
+    val allSyncQueue: StateFlow<List<com.example.data.entity.SyncQueueEntity>> = syncQueueDao.getAllSyncQueue()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    val pendingSyncCount: StateFlow<Int> = syncQueueDao.getPendingCountFlow()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0)
+
+    val isOnlineStatus: StateFlow<Boolean> = com.example.util.SyncEngine.isOnline
+    val isSyncing: StateFlow<Boolean> = com.example.util.SyncEngine.isSyncing
+
+    fun setOnlineMode(online: Boolean) {
+        com.example.util.SyncEngine.setOnlineStatus(online)
+        if (online) {
+            triggerSyncNow { _, _ -> }
+        }
+    }
+
+    fun triggerSyncNow(onResult: (Int, String) -> Unit = { _, _ -> }) {
+        viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            val (count, msg) = com.example.util.SyncEngine.processPendingQueue(syncQueueDao)
+            kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
+                onResult(count, msg)
+            }
+        }
+    }
+
+    fun clearSyncedQueue() {
+        viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            syncQueueDao.clearSyncedQueue()
+        }
+    }
+
+    fun enqueueSyncRecord(type: String, summary: String, payloadJson: String) {
+        viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            com.example.util.SyncEngine.enqueueTransaction(syncQueueDao, type, summary, payloadJson)
+            if (isOnlineStatus.value) {
+                com.example.util.SyncEngine.processPendingQueue(syncQueueDao)
+            }
+        }
+    }
 
     // --- Cash Management States ---
     val allCashAccounts: StateFlow<List<CashAccountEntity>> = cashDao.getAllAccounts()
@@ -162,6 +341,32 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    fun transferCash(fromAccount: String, toAccount: String, amount: Double, note: String, date: String) {
+        if (amount <= 0 || fromAccount == toAccount) return
+        viewModelScope.launch {
+            val fromName = com.example.data.entity.CashAccountDefaults.getAccountName(fromAccount)
+            val toName = com.example.data.entity.CashAccountDefaults.getAccountName(toAccount)
+            val noteOut = if (note.isBlank()) "Transfer ke $toName" else "Transfer ke $toName: $note"
+            val noteIn = if (note.isBlank()) "Transfer dari $fromName" else "Transfer dari $fromName: $note"
+            val dateFormatted = date.ifBlank { Formatters.getCurrentDateFormatted() }
+
+            recordCashOutDirect(
+                accountType = fromAccount,
+                amount = amount,
+                category = "Transfer Antar Kas",
+                note = noteOut,
+                date = dateFormatted
+            )
+            recordCashInDirect(
+                accountType = toAccount,
+                amount = amount,
+                category = "Transfer Antar Kas",
+                note = noteIn,
+                date = dateFormatted
+            )
+        }
+    }
+
     fun deleteCashMutation(id: Long) {
         viewModelScope.launch {
             cashDao.deleteMutation(id)
@@ -201,6 +406,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     val todayProfit: StateFlow<Double> = salesDao.getProfitForDate(Formatters.getCurrentDateFormatted())
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0.0)
+
+    val todayTransactionCount: StateFlow<Int> = salesDao.getTransactionCountForDate(Formatters.getCurrentDateFormatted())
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0)
 
     val weeklyRevenue: StateFlow<Double> = salesDao.getRevenueBetweenDates(Formatters.getSevenDaysAgoDate(), Formatters.getCurrentDateFormatted())
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0.0)
@@ -261,6 +469,40 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     val lowStockItems: StateFlow<List<ItemEntity>> = itemDao.getLowStockItems()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    val criticalLowStockItems: StateFlow<List<ItemEntity>> = itemDao.getAllItems().map { list ->
+        list.filter { it.stok < 5 }
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    val monthlySalesTrends: StateFlow<List<MonthlySalesData>> = salesDao.getAllTransactions().map { transactions ->
+        val sdfYM = java.text.SimpleDateFormat("yyyy-MM", java.util.Locale.getDefault())
+        val sdfLabel = java.text.SimpleDateFormat("MMM yy", java.util.Locale("id", "ID"))
+
+        val monthKeys = mutableListOf<String>()
+        val monthLabels = mutableMapOf<String, String>()
+        val cal = java.util.Calendar.getInstance()
+        cal.add(java.util.Calendar.MONTH, -5)
+        for (i in 0..5) {
+            val ym = sdfYM.format(cal.time)
+            monthKeys.add(ym)
+            monthLabels[ym] = sdfLabel.format(cal.time)
+            cal.add(java.util.Calendar.MONTH, 1)
+        }
+
+        val grouped = transactions.groupBy {
+            if (it.tanggal.length >= 7) it.tanggal.substring(0, 7) else ""
+        }
+
+        monthKeys.map { ym ->
+            val txs = grouped[ym] ?: emptyList()
+            MonthlySalesData(
+                yearMonth = ym,
+                monthLabel = monthLabels[ym] ?: ym,
+                totalSales = txs.sumOf { it.totalUangPenjualan },
+                totalProfit = txs.sumOf { it.keuntungan }
+            )
+        }
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     val totalUnpaidReceivables: StateFlow<Double> = customerReceivableDao.getTotalUnpaidReceivables()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0.0)
@@ -545,14 +787,15 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val _incomingCart = MutableStateFlow<List<CartItemIncoming>>(emptyList())
     val incomingCart: StateFlow<List<CartItemIncoming>> = _incomingCart.asStateFlow()
 
-    fun addIncomingCartItem(item: ItemEntity) {
+    fun addIncomingCartItem(item: ItemEntity, qty: Int = 1) {
         val current = _incomingCart.value.toMutableList()
         val index = current.indexOfFirst { it.item.id == item.id }
+        val addQty = qty.coerceAtLeast(1)
         if (index != -1) {
             val existing = current[index]
-            current[index] = existing.copy(jumlahMasuk = existing.jumlahMasuk + 1)
+            current[index] = existing.copy(jumlahMasuk = existing.jumlahMasuk + addQty)
         } else {
-            current.add(CartItemIncoming(item = item, jumlahMasuk = 1, hargaModal = item.hargaModal))
+            current.add(CartItemIncoming(item = item, jumlahMasuk = addQty, hargaModal = item.hargaModal))
         }
         _incomingCart.value = current
     }
@@ -595,8 +838,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
             for (scanned in scannedItems) {
                 if (scanned.namaBarang.isBlank()) continue
-                val existingInDb = allDbItems.find {
-                    it.namaBarang.equals(scanned.namaBarang, ignoreCase = true)
+                val existingInDb = if (scanned.matchedItemId != null) {
+                    allDbItems.find { it.id == scanned.matchedItemId }
+                } else {
+                    allDbItems.find {
+                        it.namaBarang.equals(scanned.namaBarang, ignoreCase = true) ||
+                                (it.kodeBarang.isNotBlank() && it.kodeBarang.equals(scanned.namaBarang, ignoreCase = true))
+                    } ?: com.example.util.ItemMatcher.findBestMatch(scanned.namaBarang, allDbItems)
                 }
 
                 val finalItem: ItemEntity = if (existingInDb != null) {
@@ -658,6 +906,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         catatan: String,
         statusPembayaran: String,
         targetAccountCode: String = "BANK",
+        nominalTunaiSplit: Double = 0.0,
+        nominalTransferSplit: Double = 0.0,
         onSuccess: () -> Unit
     ) {
         val rawCart = _incomingCart.value
@@ -693,6 +943,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 }
                 incomingDao.insertItems(incomingItemsList)
 
+                enqueueSyncRecord(
+                    type = "INCOMING",
+                    summary = "Barang Masuk $supplierName - ${Formatters.formatRupiah(totalNilai)}",
+                    payloadJson = "{\"txId\":$txId,\"supplier\":\"$supplierName\",\"faktur\":\"$fakturNumber\",\"total\":$totalNilai}"
+                )
+
                 // Update item stock & history
                 cart.forEach { cartItem ->
                     val currentItem = itemDao.getItemById(cartItem.item.id)
@@ -720,7 +976,28 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 }
 
                 // Handle Cash Deduction or Supplier Payable
-                if (statusPembayaran == "Tunai") {
+                if (statusPembayaran.contains("Tunai & Transfer") || (nominalTunaiSplit > 0 && nominalTransferSplit > 0)) {
+                    val bankAccount = if (targetAccountCode.isNotBlank() && targetAccountCode != "TUNAI") targetAccountCode else "BANK"
+                    val bankName = com.example.data.entity.CashAccountDefaults.getAccountName(bankAccount)
+                    if (nominalTunaiSplit > 0) {
+                        recordCashOutDirect(
+                            accountType = "TUNAI",
+                            amount = nominalTunaiSplit,
+                            category = "Pembelian Barang (Tunai)",
+                            note = "Supplier: ${supplierName.trim()} | Faktur: ${fakturNumber.ifBlank { "-" }} (Bagian Tunai)",
+                            date = tanggal
+                        )
+                    }
+                    if (nominalTransferSplit > 0) {
+                        recordCashOutDirect(
+                            accountType = bankAccount,
+                            amount = nominalTransferSplit,
+                            category = "Pembelian Barang (Transfer)",
+                            note = "Supplier: ${supplierName.trim()} | Faktur: ${fakturNumber.ifBlank { "-" }} (Bagian Transfer $bankName)",
+                            date = tanggal
+                        )
+                    }
+                } else if (statusPembayaran == "Tunai") {
                     recordCashOutDirect(
                         accountType = "TUNAI",
                         amount = totalNilai,
@@ -767,16 +1044,19 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val _salesCart = MutableStateFlow<List<CartItemSales>>(emptyList())
     val salesCart: StateFlow<List<CartItemSales>> = _salesCart.asStateFlow()
 
-    fun addSalesCartItem(item: ItemEntity) {
+    fun addSalesCartItem(item: ItemEntity, qty: Int = 1) {
         val current = _salesCart.value.toMutableList()
         val index = current.indexOfFirst { it.item.id == item.id }
+        val addQty = qty.coerceAtLeast(1)
         if (index != -1) {
             val existing = current[index]
             val maxStock = maxOf(1, existing.item.stok)
-            val newQty = (existing.jumlahTerjual + 1).coerceAtMost(maxStock)
+            val newQty = (existing.jumlahTerjual + addQty).coerceAtMost(maxStock)
             current[index] = existing.copy(jumlahTerjual = newQty)
         } else {
-            current.add(CartItemSales(item = item, jumlahTerjual = 1, hargaSatuan = item.hargaModal))
+            val maxStock = maxOf(1, item.stok)
+            val initialQty = addQty.coerceAtMost(maxStock)
+            current.add(CartItemSales(item = item, jumlahTerjual = initialQty, hargaSatuan = item.hargaModal))
         }
         _salesCart.value = current
     }
@@ -889,9 +1169,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         nomorHp: String = "",
         uangMuka: Double = 0.0,
         jatuhTempo: String = "",
-        metodePembayaran: String = "Tunai", // "Tunai", "Transfer", "Piutang", "Transfer (Bank BCA)", etc.
+        metodePembayaran: String = "Tunai", // "Tunai", "Transfer", "Tunai & Transfer", "Piutang", etc.
         targetAccountCode: String = "TUNAI", // "TUNAI", "BCA", "MANDIRI", "BRI", "BNI", "BANK_LAIN", "GOPAY", "OVO", "DANA", "SHOPEEPAY", "LINKAJA"
         selectedStore: String = _selectedStoreForSales.value,
+        nominalTunaiSplit: Double = 0.0,
+        nominalTransferSplit: Double = 0.0,
         onSuccess: () -> Unit
     ) {
         val rawCart = _salesCart.value
@@ -939,6 +1221,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 }
                 salesDao.insertItems(salesItemsList)
 
+                enqueueSyncRecord(
+                    type = "SALES",
+                    summary = "Penjualan $selectedStore Nota #$txId - ${Formatters.formatRupiah(finalMoney)}",
+                    payloadJson = "{\"txId\":$txId,\"store\":\"$selectedStore\",\"total\":$finalMoney,\"itemsCount\":$totalItemTerjual}"
+                )
+
                 // Auto-create Customer Receivable (Piutang Pelanggan / Toko) or record Cash In
                 if (isPiutang && namaPelanggan.isNotBlank()) {
                     val sisaPiutang = (finalMoney - uangMuka).coerceAtLeast(0.0)
@@ -978,18 +1266,41 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         )
                     }
                 } else {
-                    val targetAccount = if (metodePembayaran.startsWith("Transfer") || metodePembayaran == "Transfer") {
-                        if (targetAccountCode.isNotBlank() && targetAccountCode != "TUNAI") targetAccountCode else "BANK"
-                    } else "TUNAI"
+                    if (metodePembayaran.contains("Tunai & Transfer") || (nominalTunaiSplit > 0 && nominalTransferSplit > 0)) {
+                        val bankAccount = if (targetAccountCode.isNotBlank() && targetAccountCode != "TUNAI") targetAccountCode else "BANK"
+                        val bankName = com.example.data.entity.CashAccountDefaults.getAccountName(bankAccount)
+                        if (nominalTunaiSplit > 0) {
+                            recordCashInDirect(
+                                accountType = "TUNAI",
+                                amount = nominalTunaiSplit,
+                                category = "Penjualan $selectedStore (Tunai)",
+                                note = fullCatatan.ifBlank { "Penjualan $selectedStore Nota #${txId} (Bagian Tunai)" },
+                                date = tanggal
+                            )
+                        }
+                        if (nominalTransferSplit > 0) {
+                            recordCashInDirect(
+                                accountType = bankAccount,
+                                amount = nominalTransferSplit,
+                                category = "Penjualan $selectedStore (Transfer)",
+                                note = fullCatatan.ifBlank { "Penjualan $selectedStore Nota #${txId} (Bagian Transfer $bankName)" },
+                                date = tanggal
+                            )
+                        }
+                    } else {
+                        val targetAccount = if (metodePembayaran.startsWith("Transfer") || metodePembayaran == "Transfer") {
+                            if (targetAccountCode.isNotBlank() && targetAccountCode != "TUNAI") targetAccountCode else "BANK"
+                        } else "TUNAI"
 
-                    val categoryLabel = "Penjualan $selectedStore ($metodePembayaran)"
-                    recordCashInDirect(
-                        accountType = targetAccount,
-                        amount = finalMoney,
-                        category = categoryLabel,
-                        note = fullCatatan.ifBlank { "Penjualan $selectedStore Nota #${txId}" },
-                        date = tanggal
-                    )
+                        val categoryLabel = "Penjualan $selectedStore ($metodePembayaran)"
+                        recordCashInDirect(
+                            accountType = targetAccount,
+                            amount = finalMoney,
+                            category = categoryLabel,
+                            note = fullCatatan.ifBlank { "Penjualan $selectedStore Nota #${txId}" },
+                            date = tanggal
+                        )
+                    }
                 }
 
                 // Deduct store stock & log stock history
@@ -1075,6 +1386,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    fun cancelCustomerReceivable(piutangId: Long, onSuccess: (() -> Unit)? = null) {
+        viewModelScope.launch {
+            customerReceivableDao.deletePaymentsByReceivable(piutangId)
+            customerReceivableDao.deleteReceivable(piutangId)
+            onSuccess?.invoke()
+        }
+    }
+
     fun addCustomerPayment(
         piutangId: Long,
         nominalBayar: Double,
@@ -1103,11 +1422,15 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             )
             customerReceivableDao.insertPayment(payment)
 
-            val targetAccount = if (metodePembayaran == "Transfer") "BANK" else "TUNAI"
+            val targetAccount = when {
+                metodePembayaran == "Tunai" -> "TUNAI"
+                metodePembayaran == "Transfer" -> "BANK"
+                else -> metodePembayaran
+            }
             recordCashInDirect(
                 accountType = targetAccount,
                 amount = nominalBayar,
-                category = "Bayar Piutang (${if (metodePembayaran == "Transfer") "Transfer" else "Tunai"})",
+                category = "Bayar Piutang (${if (metodePembayaran == "Tunai") "Tunai" else "Transfer/Bank"})",
                 note = "Pelanggan: ${receivable.namaPelanggan} | ${catatan.ifBlank { "Pelunasan Piutang" }}",
                 date = tanggal
             )
@@ -1120,6 +1443,35 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             if (receivable.nominalSisa > 0) {
                 addCustomerPayment(piutangId, receivable.nominalSisa, tanggal, "Pelunasan Langsung", metodePembayaran)
             }
+        }
+    }
+
+    fun cancelCustomerPayment(paymentId: Long, onSuccess: (() -> Unit)? = null) {
+        viewModelScope.launch {
+            val payment = customerReceivableDao.getPaymentById(paymentId) ?: return@launch
+            val receivable = customerReceivableDao.getReceivableById(payment.piutangId)
+            if (receivable != null) {
+                val newSisa = receivable.nominalSisa + payment.nominalBayar
+                val updated = receivable.copy(
+                    nominalSisa = newSisa,
+                    status = if (newSisa > 0) "Belum Lunas" else "Lunas"
+                )
+                customerReceivableDao.updateReceivable(updated)
+            }
+            val targetAccount = when {
+                payment.metodePembayaran == "Tunai" -> "TUNAI"
+                payment.metodePembayaran == "Transfer" -> "BANK"
+                else -> payment.metodePembayaran.ifBlank { "TUNAI" }
+            }
+            recordCashOutDirect(
+                accountType = targetAccount,
+                amount = payment.nominalBayar,
+                category = "Pembatalan Pelunasan Piutang",
+                note = "Pembatalan pembayaran Rp ${payment.nominalBayar.toInt()} untuk ${receivable?.namaPelanggan ?: "Piutang"}",
+                date = Formatters.getCurrentDateFormatted()
+            )
+            customerReceivableDao.deletePayment(paymentId)
+            onSuccess?.invoke()
         }
     }
 
@@ -1159,11 +1511,15 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             )
             supplierPayableDao.insertPayment(payment)
 
-            val targetAccount = if (metodePembayaran == "Transfer") "BANK" else "TUNAI"
+            val targetAccount = when {
+                metodePembayaran == "Tunai" -> "TUNAI"
+                metodePembayaran == "Transfer" -> "BANK"
+                else -> metodePembayaran
+            }
             recordCashOutDirect(
                 accountType = targetAccount,
                 amount = nominalBayar,
-                category = "Bayar Hutang (${if (metodePembayaran == "Transfer") "Transfer" else "Tunai"})",
+                category = "Bayar Hutang (${if (metodePembayaran == "Tunai") "Tunai" else "Transfer/Bank"})",
                 note = "Supplier: ${payable.namaSupplier} | ${catatan.ifBlank { "Bayar Hutang" }}",
                 date = tanggal
             )
@@ -1176,6 +1532,209 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             if (payable.nominalSisa > 0) {
                 addSupplierPayment(hutangId, payable.nominalSisa, tanggal, "Pelunasan Langsung", metodePembayaran)
             }
+        }
+    }
+
+    fun cancelSupplierPayment(paymentId: Long, onSuccess: (() -> Unit)? = null) {
+        viewModelScope.launch {
+            val payment = supplierPayableDao.getPaymentById(paymentId) ?: return@launch
+            val payable = supplierPayableDao.getPayableById(payment.hutangId)
+            if (payable != null) {
+                val newSisa = payable.nominalSisa + payment.nominalBayar
+                val updated = payable.copy(
+                    nominalSisa = newSisa,
+                    status = if (newSisa > 0) "Belum Lunas" else "Lunas"
+                )
+                supplierPayableDao.updatePayable(updated)
+            }
+            val targetAccount = when {
+                payment.metodePembayaran == "Tunai" -> "TUNAI"
+                payment.metodePembayaran == "Transfer" -> "BANK"
+                else -> payment.metodePembayaran.ifBlank { "TUNAI" }
+            }
+            recordCashInDirect(
+                accountType = targetAccount,
+                amount = payment.nominalBayar,
+                category = "Pembatalan Pelunasan Hutang",
+                note = "Pembatalan pembayaran hutang Rp ${payment.nominalBayar.toInt()} untuk ${payable?.namaSupplier ?: "Supplier"}",
+                date = Formatters.getCurrentDateFormatted()
+            )
+            supplierPayableDao.deletePayment(paymentId)
+            onSuccess?.invoke()
+        }
+    }
+
+    fun cancelSupplierPayable(hutangId: Long, onSuccess: (() -> Unit)? = null) {
+        viewModelScope.launch {
+            supplierPayableDao.deletePaymentsByPayable(hutangId)
+            supplierPayableDao.deletePayable(hutangId)
+            onSuccess?.invoke()
+        }
+    }
+
+    fun addSupplierPayable(
+        namaSupplier: String,
+        nomorFaktur: String = "",
+        nominal: Double,
+        tanggal: String,
+        catatan: String = ""
+    ) {
+        if (namaSupplier.isBlank() || nominal <= 0) return
+        val finalNote = if (nomorFaktur.isNotBlank()) {
+            if (catatan.isNotBlank()) "Faktur: ${nomorFaktur.trim()} - ${catatan.trim()}" else "Faktur: ${nomorFaktur.trim()}"
+        } else catatan.trim()
+
+        viewModelScope.launch {
+            val payable = SupplierPayableEntity(
+                namaSupplier = namaSupplier.trim(),
+                nominalAwal = nominal,
+                nominalSisa = nominal,
+                tanggal = tanggal,
+                catatan = finalNote,
+                status = "Belum Lunas"
+            )
+            supplierPayableDao.insertPayable(payable)
+        }
+    }
+
+    fun cancelCashMutation(mutationId: Long, onSuccess: (() -> Unit)? = null) {
+        viewModelScope.launch {
+            val mutation = cashDao.getMutationById(mutationId) ?: return@launch
+            val currentAccount = cashDao.getAccountDirect(mutation.accountType)
+            if (currentAccount != null) {
+                val newSaldo = if (mutation.jenis == "MASUK") {
+                    currentAccount.saldo - mutation.nominal
+                } else {
+                    currentAccount.saldo + mutation.nominal
+                }
+                cashDao.insertOrUpdateAccount(currentAccount.copy(saldo = newSaldo, lastUpdated = System.currentTimeMillis()))
+            }
+            cashDao.deleteMutation(mutationId)
+            onSuccess?.invoke()
+        }
+    }
+
+    fun cancelSalesTransaction(transactionId: Long, onSuccess: (() -> Unit)? = null) {
+        viewModelScope.launch {
+            val transaction = salesDao.getTransactionById(transactionId) ?: return@launch
+            val items = salesDao.getItemsForTransaction(transactionId)
+
+            items.forEach { salesItem ->
+                val product = itemDao.getItemById(salesItem.itemId)
+                if (product != null) {
+                    val isCabang = transaction.namaToko.contains("Cabang", ignoreCase = true)
+                    val oldUtama = product.actualStokUtama
+                    val oldCabang = product.actualStokCabang
+                    var newUtama = oldUtama
+                    var newCabang = oldCabang
+                    if (isCabang) {
+                        newCabang += salesItem.jumlahTerjual
+                    } else {
+                        newUtama += salesItem.jumlahTerjual
+                    }
+                    val totalS = newUtama + newCabang
+
+                    itemDao.updateStoreStocks(
+                        id = product.id,
+                        stokUtama = newUtama,
+                        stokCabang = newCabang,
+                        totalStok = totalS
+                    )
+
+                    stockHistoryDao.insertHistory(
+                        com.example.data.entity.StockHistoryEntity(
+                            itemId = product.id,
+                            kodeBarang = product.kodeBarang,
+                            namaBarang = product.namaBarang,
+                            jumlahPerubahan = salesItem.jumlahTerjual,
+                            stokAwal = product.totalStokCombined,
+                            stokAkhir = totalS,
+                            jenis = "Pembatalan Penjualan",
+                            keterangan = "Pembatalan Transaksi Penjualan #${transaction.id}",
+                            namaToko = transaction.namaToko
+                        )
+                    )
+                }
+            }
+
+            val targetAccount = when {
+                transaction.metodePembayaran == "Tunai" -> "TUNAI"
+                transaction.metodePembayaran.startsWith("Transfer") -> "BANK"
+                transaction.metodePembayaran == "Piutang" -> null
+                else -> transaction.metodePembayaran.ifBlank { "TUNAI" }
+            }
+
+            if (targetAccount != null) {
+                recordCashOutDirect(
+                    accountType = targetAccount,
+                    amount = transaction.totalUangPenjualan,
+                    category = "Pembatalan Penjualan",
+                    note = "Pembatalan Transaksi Penjualan #${transaction.id}",
+                    date = Formatters.getCurrentDateFormatted()
+                )
+            }
+
+            salesDao.deleteItemsForTransaction(transactionId)
+            salesDao.deleteTransaction(transactionId)
+            onSuccess?.invoke()
+        }
+    }
+
+    fun cancelIncomingTransaction(transactionId: Long, onSuccess: (() -> Unit)? = null) {
+        viewModelScope.launch {
+            val transaction = incomingDao.getTransactionById(transactionId) ?: return@launch
+            val items = incomingDao.getItemsForTransaction(transactionId)
+
+            items.forEach { incItem ->
+                val product = itemDao.getItemById(incItem.itemId)
+                if (product != null) {
+                    val oldUtama = product.actualStokUtama
+                    val oldCabang = product.actualStokCabang
+                    val newUtama = (oldUtama - incItem.jumlahMasuk).coerceAtLeast(0)
+                    val totalS = newUtama + oldCabang
+
+                    itemDao.updateStoreStocks(
+                        id = product.id,
+                        stokUtama = newUtama,
+                        stokCabang = oldCabang,
+                        totalStok = totalS
+                    )
+
+                    stockHistoryDao.insertHistory(
+                        com.example.data.entity.StockHistoryEntity(
+                            itemId = product.id,
+                            kodeBarang = product.kodeBarang,
+                            namaBarang = product.namaBarang,
+                            jumlahPerubahan = -incItem.jumlahMasuk,
+                            stokAwal = product.totalStokCombined,
+                            stokAkhir = totalS,
+                            jenis = "Pembatalan Barang Masuk",
+                            keterangan = "Pembatalan Barang Masuk #${transaction.id} (${transaction.namaSupplier})",
+                            namaToko = "Toko Utama"
+                        )
+                    )
+                }
+            }
+
+            if (transaction.statusPembayaran != "Hutang") {
+                val targetAccount = when {
+                    transaction.statusPembayaran == "Tunai" -> "TUNAI"
+                    transaction.statusPembayaran == "Transfer" -> "BANK"
+                    else -> transaction.statusPembayaran.ifBlank { "TUNAI" }
+                }
+
+                recordCashInDirect(
+                    accountType = targetAccount,
+                    amount = transaction.totalNilai,
+                    category = "Pembatalan Barang Masuk",
+                    note = "Refund Pembatalan Barang Masuk #${transaction.id} (${transaction.namaSupplier})",
+                    date = Formatters.getCurrentDateFormatted()
+                )
+            }
+
+            incomingDao.deleteItemsForTransaction(transactionId)
+            incomingDao.deleteTransaction(transactionId)
+            onSuccess?.invoke()
         }
     }
 

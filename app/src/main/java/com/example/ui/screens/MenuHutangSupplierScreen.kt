@@ -20,6 +20,9 @@ import androidx.compose.material.icons.filled.Payments
 import androidx.compose.material.icons.filled.MoneyOff
 import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material3.FilterChip
+import androidx.compose.material3.FilterChipDefaults
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
@@ -51,6 +54,18 @@ import com.example.data.entity.SupplierPayableEntity
 import com.example.ui.MainViewModel
 import com.example.util.Formatters
 
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.History
+import androidx.compose.material3.FloatingActionButton
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.ui.text.input.KeyboardType
+import com.example.ui.components.DatePickerField
+import androidx.compose.material.icons.filled.WidthFull
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.size
+import androidx.compose.material3.TextButton
+
 @Composable
 fun MenuHutangSupplierScreen(
     viewModel: MainViewModel
@@ -58,20 +73,50 @@ fun MenuHutangSupplierScreen(
     val context = LocalContext.current
     val payablesList by viewModel.allPayables.collectAsStateWithLifecycle()
     val totalUnpaid by viewModel.totalUnpaidPayables.collectAsStateWithLifecycle()
+    val allCashAccounts by viewModel.allCashAccounts.collectAsStateWithLifecycle()
 
     var searchQuery by remember { mutableStateOf("") }
+    var selectedFilter by remember { mutableStateOf("Belum Lunas") }
     var payableForPayment by remember { mutableStateOf<SupplierPayableEntity?>(null) }
+    var payableForConfirmLunas by remember { mutableStateOf<SupplierPayableEntity?>(null) }
+    var payableForHistory by remember { mutableStateOf<SupplierPayableEntity?>(null) }
+    var payableToCancel by remember { mutableStateOf<SupplierPayableEntity?>(null) }
+    var showAddDialog by remember { mutableStateOf(false) }
 
-    val filteredPayables = remember(payablesList, searchQuery) {
-        if (searchQuery.isBlank()) payablesList
-        else payablesList.filter {
-            it.namaSupplier.contains(searchQuery, ignoreCase = true) ||
-                    it.catatan.contains(searchQuery, ignoreCase = true)
+    val filteredPayables = remember(payablesList, searchQuery, selectedFilter) {
+        payablesList.filter { item ->
+            val matchesSearch = searchQuery.isBlank() ||
+                    item.namaSupplier.contains(searchQuery, ignoreCase = true) ||
+                    item.catatan.contains(searchQuery, ignoreCase = true)
+
+            val matchesStatus = when (selectedFilter) {
+                "Belum Lunas" -> item.status != "Lunas" && item.nominalSisa > 0
+                "Nota Lunas" -> item.status == "Lunas" || item.nominalSisa <= 0
+                else -> true
+            }
+
+            matchesSearch && matchesStatus
         }
     }
 
     Scaffold(
-        modifier = Modifier.testTag("menu_hutang_screen")
+        modifier = Modifier.testTag("menu_hutang_screen"),
+        floatingActionButton = {
+            FloatingActionButton(
+                onClick = { showAddDialog = true },
+                containerColor = MaterialTheme.colorScheme.primary,
+                contentColor = Color.White
+            ) {
+                Row(
+                    modifier = Modifier.padding(horizontal = 16.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(imageVector = Icons.Default.Add, contentDescription = null)
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text(text = "Tambah Hutang", fontWeight = FontWeight.Bold)
+                }
+            }
+        }
     ) { innerPadding ->
         LazyColumn(
             modifier = Modifier
@@ -147,6 +192,29 @@ fun MenuHutangSupplierScreen(
                         shape = RoundedCornerShape(12.dp),
                         colors = OutlinedTextFieldDefaults.colors()
                     )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    androidx.compose.foundation.lazy.LazyRow(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        val filters = listOf(
+                            "Belum Lunas" to "Belum Lunas",
+                            "Nota Lunas" to "Riwayat Nota Lunas",
+                            "Semua" to "Semua Hutang"
+                        )
+                        items(filters) { (key, label) ->
+                            val isSelected = selectedFilter == key
+                            FilterChip(
+                                selected = isSelected,
+                                onClick = { selectedFilter = key },
+                                label = { Text(label, fontSize = 12.sp, fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal) },
+                                colors = androidx.compose.material3.FilterChipDefaults.filterChipColors(
+                                    selectedContainerColor = if (key == "Nota Lunas") Color(0xFFE8F5E9) else MaterialTheme.colorScheme.primaryContainer,
+                                    selectedLabelColor = if (key == "Nota Lunas") Color(0xFF2E7D32) else MaterialTheme.colorScheme.onPrimaryContainer
+                                )
+                            )
+                        }
+                    }
                 }
             }
 
@@ -170,17 +238,126 @@ fun MenuHutangSupplierScreen(
                     PayableCard(
                         payable = payable,
                         onPayment = { payableForPayment = payable },
-                        onDirectLunas = {
-                            viewModel.markSupplierPayableLunas(
-                                hutangId = payable.id,
-                                tanggal = Formatters.getCurrentDateFormatted()
-                            )
-                            Toast.makeText(context, "Hutang ke supplier '${payable.namaSupplier}' telah dilunasi!", Toast.LENGTH_SHORT).show()
-                        }
+                        onDirectLunas = { payableForConfirmLunas = payable },
+                        onViewHistory = { payableForHistory = payable },
+                        onCancel = { payableToCancel = payable }
                     )
                 }
             }
         }
+    }
+
+    // Cancellation Dialog for Hutang Supplier
+    payableToCancel?.let { payable ->
+        AlertDialog(
+            onDismissRequest = { payableToCancel = null },
+            title = { Text("Batalkan Catatan Hutang Supplier?", fontWeight = FontWeight.Bold, color = Color(0xFFD32F2F)) },
+            text = {
+                Text(
+                    "Apakah Anda yakin ingin membatalkan dan menghapus catatan hutang ke supplier '${payable.namaSupplier}' sebesar ${Formatters.formatRupiah(payable.nominalAwal)}? Seluruh riwayat pembayarannya juga akan dihapus."
+                )
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        viewModel.cancelSupplierPayable(payable.id) {
+                            payableToCancel = null
+                            Toast.makeText(context, "Catatan hutang supplier berhasil dibatalkan!", Toast.LENGTH_SHORT).show()
+                        }
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFD32F2F))
+                ) {
+                    Text("Ya, Batalkan Hutang", fontWeight = FontWeight.Bold)
+                }
+            },
+            dismissButton = {
+                OutlinedButton(onClick = { payableToCancel = null }) {
+                    Text("Tidak")
+                }
+            }
+        )
+    }
+
+    // Add Payable Dialog
+    if (showAddDialog) {
+        AddPayableDialog(
+            onDismiss = { showAddDialog = false },
+            onConfirm = { supplier, faktur, nominal, tgl, cat ->
+                viewModel.addSupplierPayable(
+                    namaSupplier = supplier,
+                    nomorFaktur = faktur,
+                    nominal = nominal,
+                    tanggal = tgl,
+                    catatan = cat
+                )
+                showAddDialog = false
+            }
+        )
+    }
+
+    // Confirmation Dialog for Pelunasan Hutang (Ya / Tidak)
+    payableForConfirmLunas?.let { payable ->
+        var selectedAccountCode by remember { mutableStateOf("TUNAI") }
+        AlertDialog(
+            onDismissRequest = { payableForConfirmLunas = null },
+            title = { Text("Konfirmasi Pelunasan Hutang", fontWeight = FontWeight.Bold) },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Text(
+                        text = "Apakah Anda yakin ingin melunasi seluruh sisa hutang ke supplier ${payable.namaSupplier} sebesar ${Formatters.formatRupiah(payable.nominalSisa)}?",
+                        fontSize = 14.sp
+                    )
+                    Text(
+                        text = "Pilih Kas / Bank Sumber Pembayaran:",
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        FilterChip(
+                            selected = selectedAccountCode == "TUNAI",
+                            onClick = { selectedAccountCode = "TUNAI" },
+                            label = { Text("Kas Tunai", fontSize = 11.sp) },
+                            colors = FilterChipDefaults.filterChipColors(
+                                selectedContainerColor = Color(0xFFE8F5E9),
+                                selectedLabelColor = Color(0xFF2E7D32)
+                            )
+                        )
+                        allCashAccounts.filter { it.accountType != "TUNAI" }.forEach { acc ->
+                            FilterChip(
+                                selected = selectedAccountCode == acc.accountType,
+                                onClick = { selectedAccountCode = acc.accountType },
+                                label = { Text(acc.accountName, fontSize = 11.sp) },
+                                colors = FilterChipDefaults.filterChipColors(
+                                    selectedContainerColor = Color(0xFFE3F2FD),
+                                    selectedLabelColor = Color(0xFF1565C0)
+                                )
+                            )
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        viewModel.markSupplierPayableLunas(
+                            hutangId = payable.id,
+                            tanggal = Formatters.getCurrentDateFormatted(),
+                            metodePembayaran = selectedAccountCode
+                        )
+                        payableForConfirmLunas = null
+                        Toast.makeText(context, "Hutang ke supplier '${payable.namaSupplier}' berhasil dilunasi!", Toast.LENGTH_SHORT).show()
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2E7D32))
+                ) {
+                    Text("Ya, Pelunasan", fontWeight = FontWeight.Bold)
+                }
+            },
+            dismissButton = {
+                OutlinedButton(onClick = { payableForConfirmLunas = null }) {
+                    Text("Tidak / Batal")
+                }
+            }
+        )
     }
 
     // Payment Dialog
@@ -188,6 +365,7 @@ fun MenuHutangSupplierScreen(
         PaymentDialog(
             title = "Pembayaran Hutang Supplier - ${payable.namaSupplier}",
             sisaTagihan = payable.nominalSisa,
+            allAccounts = allCashAccounts,
             onDismiss = { payableForPayment = null },
             onConfirm = { nominal, tgl, cat, metode ->
                 viewModel.addSupplierPayment(
@@ -202,13 +380,126 @@ fun MenuHutangSupplierScreen(
             }
         )
     }
+
+    // Payment History & Cancellation Dialog
+    payableForHistory?.let { payable ->
+        val paymentsList by viewModel.getSupplierPayments(payable.id).collectAsStateWithLifecycle(emptyList())
+        var paymentToCancel by remember { mutableStateOf<com.example.data.entity.SupplierPaymentEntity?>(null) }
+
+        AlertDialog(
+            onDismissRequest = { payableForHistory = null },
+            title = {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(imageVector = Icons.Default.History, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text("Riwayat Pelunasan - ${payable.namaSupplier}", fontSize = 16.sp, fontWeight = FontWeight.Bold)
+                }
+            },
+            text = {
+                Column(modifier = Modifier.fillMaxWidth()) {
+                    if (paymentsList.isEmpty()) {
+                        Text(
+                            text = "Belum ada riwayat pembayaran untuk hutang ini.",
+                            fontSize = 13.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(vertical = 12.dp)
+                        )
+                    } else {
+                        androidx.compose.foundation.lazy.LazyColumn(
+                            modifier = Modifier.heightIn(max = 300.dp),
+                            verticalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            items(paymentsList, key = { it.id }) { payment ->
+                                Card(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)),
+                                    shape = RoundedCornerShape(8.dp)
+                                ) {
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(10.dp),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Column(modifier = Modifier.weight(1f)) {
+                                            Text(
+                                                text = Formatters.formatRupiah(payment.nominalBayar),
+                                                fontWeight = FontWeight.Bold,
+                                                color = Color(0xFFD32F2F),
+                                                fontSize = 14.sp
+                                            )
+                                            Text(
+                                                text = "Tgl: ${Formatters.formatDateToIndonesian(payment.tanggal)} | Akun: ${payment.metodePembayaran}",
+                                                fontSize = 11.sp,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                                            )
+                                            if (payment.catatan.isNotBlank()) {
+                                                Text(
+                                                    text = "Catatan: ${payment.catatan}",
+                                                    fontSize = 11.sp,
+                                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                                )
+                                            }
+                                        }
+
+                                        TextButton(
+                                            onClick = { paymentToCancel = payment },
+                                            colors = ButtonDefaults.textButtonColors(contentColor = Color(0xFFD32F2F))
+                                        ) {
+                                            Text("Batalkan Pelunasan", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { payableForHistory = null }) {
+                    Text("Tutup")
+                }
+            }
+        )
+
+        paymentToCancel?.let { payment ->
+            AlertDialog(
+                onDismissRequest = { paymentToCancel = null },
+                title = { Text("Batalkan Pelunasan?", fontWeight = FontWeight.Bold, color = Color(0xFFD32F2F)) },
+                text = {
+                    Text("Apakah Anda yakin ingin membatalkan pembayaran hutang sebesar ${Formatters.formatRupiah(payment.nominalBayar)}? Sisa hutang akan bertambah kembali dan saldo kas/bank akan dikembalikan.")
+                },
+                confirmButton = {
+                    Button(
+                        onClick = {
+                            viewModel.cancelSupplierPayment(payment.id) {
+                                paymentToCancel = null
+                                Toast.makeText(context, "Pelunasan hutang berhasil dibatalkan!", Toast.LENGTH_SHORT).show()
+                            }
+                        },
+                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFD32F2F))
+                    ) {
+                        Text("Ya, Batalkan Pelunasan", fontWeight = FontWeight.Bold)
+                    }
+                },
+                dismissButton = {
+                    OutlinedButton(onClick = { paymentToCancel = null }) {
+                        Text("Tidak")
+                    }
+                }
+            )
+        }
+    }
 }
 
 @Composable
 fun PayableCard(
     payable: SupplierPayableEntity,
     onPayment: () -> Unit,
-    onDirectLunas: () -> Unit
+    onDirectLunas: () -> Unit,
+    onViewHistory: () -> Unit,
+    onCancel: () -> Unit
 ) {
     val isLunas = payable.status == "Lunas"
 
@@ -282,32 +573,126 @@ fun PayableCard(
                 )
             }
 
-            if (!isLunas) {
-                Spacer(modifier = Modifier.height(12.dp))
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+            Spacer(modifier = Modifier.height(12.dp))
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(4.dp)
+            ) {
+                OutlinedButton(
+                    onClick = onViewHistory,
+                    modifier = Modifier.weight(1f),
+                    shape = RoundedCornerShape(8.dp),
+                    contentPadding = PaddingValues(horizontal = 2.dp, vertical = 6.dp)
                 ) {
+                    Icon(imageVector = Icons.Default.History, contentDescription = null, modifier = Modifier.size(14.dp).padding(end = 2.dp))
+                    Text("Riwayat", fontSize = 10.sp)
+                }
+
+                OutlinedButton(
+                    onClick = onCancel,
+                    modifier = Modifier.weight(1f),
+                    shape = RoundedCornerShape(8.dp),
+                    colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFFD32F2F)),
+                    contentPadding = PaddingValues(horizontal = 2.dp, vertical = 6.dp)
+                ) {
+                    Text("Batalkan", fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                }
+
+                if (!isLunas) {
                     OutlinedButton(
                         onClick = onPayment,
-                        modifier = Modifier.weight(1f),
-                        shape = RoundedCornerShape(8.dp)
+                        modifier = Modifier.weight(1.1f),
+                        shape = RoundedCornerShape(8.dp),
+                        contentPadding = PaddingValues(horizontal = 2.dp, vertical = 6.dp)
                     ) {
-                        Icon(imageVector = Icons.Default.Payments, contentDescription = null, modifier = Modifier.padding(end = 4.dp))
-                        Text("Bayar Sebagian", fontSize = 12.sp)
+                        Icon(imageVector = Icons.Default.Payments, contentDescription = null, modifier = Modifier.size(14.dp).padding(end = 2.dp))
+                        Text("Bayar", fontSize = 10.sp)
                     }
 
                     Button(
                         onClick = onDirectLunas,
-                        modifier = Modifier.weight(1f),
+                        modifier = Modifier.weight(1.1f),
                         shape = RoundedCornerShape(8.dp),
-                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2E7D32))
+                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2E7D32)),
+                        contentPadding = PaddingValues(horizontal = 2.dp, vertical = 6.dp)
                     ) {
-                        Icon(imageVector = Icons.Default.CheckCircle, contentDescription = null, modifier = Modifier.padding(end = 4.dp))
-                        Text("Lunas", fontSize = 12.sp)
+                        Icon(imageVector = Icons.Default.CheckCircle, contentDescription = null, modifier = Modifier.size(14.dp).padding(end = 2.dp))
+                        Text("Lunas", fontSize = 10.sp)
                     }
                 }
             }
         }
     }
+}
+
+@Composable
+fun AddPayableDialog(
+    onDismiss: () -> Unit,
+    onConfirm: (supplier: String, faktur: String, nominal: Double, tgl: String, cat: String) -> Unit
+) {
+    var supplier by remember { mutableStateOf("") }
+    var faktur by remember { mutableStateOf("") }
+    var nominalStr by remember { mutableStateOf("") }
+    var tanggal by remember { mutableStateOf(Formatters.getCurrentDateFormatted()) }
+    var catatan by remember { mutableStateOf("") }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Tambah Catatan Hutang Supplier", fontWeight = FontWeight.Bold) },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                OutlinedTextField(
+                    value = supplier,
+                    onValueChange = { supplier = it },
+                    label = { Text("Nama Supplier *") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+                OutlinedTextField(
+                    value = faktur,
+                    onValueChange = { faktur = it },
+                    label = { Text("No. Faktur / Nota (Opsional)") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+                OutlinedTextField(
+                    value = nominalStr,
+                    onValueChange = { nominalStr = it.filter { char -> char.isDigit() } },
+                    label = { Text("Nominal Hutang (Rp) *") },
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+                DatePickerField(
+                    label = "Tanggal Transaksi",
+                    value = tanggal,
+                    onDateSelected = { tanggal = it },
+                    modifier = Modifier.fillMaxWidth()
+                )
+                OutlinedTextField(
+                    value = catatan,
+                    onValueChange = { catatan = it },
+                    label = { Text("Catatan / Keterangan (Opsional)") },
+                    modifier = Modifier.fillMaxWidth()
+                )
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = {
+                    val nominal = nominalStr.toDoubleOrNull() ?: 0.0
+                    if (supplier.isNotBlank() && nominal > 0) {
+                        onConfirm(supplier, faktur, nominal, tanggal, catatan)
+                    }
+                }
+            ) {
+                Text("Simpan Hutang")
+            }
+        },
+        dismissButton = {
+            OutlinedButton(onClick = onDismiss) {
+                Text("Batal")
+            }
+        }
+    )
 }

@@ -30,4 +30,13 @@ interface IncomingDao {
 
     @Query("SELECT * FROM incoming_items WHERE transactionId = :transactionId")
     suspend fun getItemsForTransaction(transactionId: Long): List<IncomingItemEntity>
+
+    @Query("SELECT * FROM incoming_transactions WHERE id = :id")
+    suspend fun getTransactionById(id: Long): IncomingTransactionEntity?
+
+    @Query("DELETE FROM incoming_transactions WHERE id = :id")
+    suspend fun deleteTransaction(id: Long)
+
+    @Query("DELETE FROM incoming_items WHERE transactionId = :transactionId")
+    suspend fun deleteItemsForTransaction(transactionId: Long)
 }

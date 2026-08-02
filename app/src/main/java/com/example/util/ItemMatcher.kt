@@ -68,6 +68,22 @@ object ItemMatcher {
     }
 
     /**
+     * Cleans OCR raw text by removing leading numbers, prices, and common unit/noise words.
+     */
+    fun cleanOcrQuery(rawText: String): String {
+        if (rawText.isBlank()) return ""
+        var cleaned = rawText.lowercase()
+            .replace(Regex("^[0-9]+[\\.\\)\\s]+"), "") // Remove leading numbers like "1.", "01)", "1 "
+            .replace(Regex("\\b(pcs|unt|unit|pack|dus|ctn|kg|gr|pck|lsn|lusin|btg|sak|roll|set|box|rp|harga|total)\\b"), " ")
+            .replace(Regex("[^a-z0-9\\s]"), " ")
+            .trim()
+        
+        // Remove trailing pure numbers (like price 15000)
+        cleaned = cleaned.replace(Regex("\\b[0-9]{4,}\\b"), "").trim()
+        return cleaned.ifBlank { rawText.replace(Regex("[^a-zA-Z0-9\\s]"), " ").trim() }
+    }
+
+    /**
      * Search and rank database items based on user query or draft text.
      * Splits into keywords/tokens and supports matching both kodeBarang and namaBarang.
      */
@@ -75,8 +91,9 @@ object ItemMatcher {
         if (databaseItems.isEmpty()) return emptyList()
         if (queryText.isBlank()) return databaseItems
 
-        val cleanQuery = queryText.lowercase().replace(Regex("[^a-z0-9\\s]"), " ").trim()
-        val tokens = cleanQuery.split("\\s+".toRegex()).filter { it.isNotBlank() }
+        val cleanedQuery = cleanOcrQuery(queryText)
+        val cleanQuery = cleanedQuery.lowercase().trim()
+        val tokens = cleanQuery.split("\\s+".toRegex()).filter { it.isNotBlank() && it.length >= 2 }
 
         if (tokens.isEmpty()) return databaseItems
 
@@ -121,6 +138,12 @@ object ItemMatcher {
         }
 
         if (scored.isEmpty()) {
+            // Fallback: try raw query substring search before returning empty
+            val rawSubMatches = databaseItems.filter { item ->
+                item.namaBarang.contains(queryText, ignoreCase = true) ||
+                item.kodeBarang.contains(queryText, ignoreCase = true)
+            }
+            if (rawSubMatches.isNotEmpty()) return rawSubMatches
             return emptyList()
         }
 

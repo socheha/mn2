@@ -27,6 +27,9 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material.icons.filled.Payment
 import androidx.compose.material.icons.filled.Warning
+import androidx.compose.material.icons.filled.History
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.size
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -71,16 +74,29 @@ fun MenuPiutangPelangganScreen(
     val receivablesList by viewModel.allReceivables.collectAsStateWithLifecycle()
     val totalUnpaid by viewModel.totalUnpaidReceivables.collectAsStateWithLifecycle()
 
+    val allCashAccounts by viewModel.allCashAccounts.collectAsStateWithLifecycle()
     var searchQuery by remember { mutableStateOf("") }
+    var selectedFilter by remember { mutableStateOf("Belum Lunas") }
     var showAddDialog by remember { mutableStateOf(false) }
     var receivableForPayment by remember { mutableStateOf<CustomerReceivableEntity?>(null) }
+    var receivableForConfirmLunas by remember { mutableStateOf<CustomerReceivableEntity?>(null) }
+    var receivableForHistory by remember { mutableStateOf<CustomerReceivableEntity?>(null) }
+    var receivableToCancel by remember { mutableStateOf<CustomerReceivableEntity?>(null) }
 
-    val filteredReceivables = remember(receivablesList, searchQuery) {
-        if (searchQuery.isBlank()) receivablesList
-        else receivablesList.filter {
-            it.namaPelanggan.contains(searchQuery, ignoreCase = true) ||
-                    it.nomorHp.contains(searchQuery, ignoreCase = true) ||
-                    it.catatan.contains(searchQuery, ignoreCase = true)
+    val filteredReceivables = remember(receivablesList, searchQuery, selectedFilter) {
+        receivablesList.filter { item ->
+            val matchesSearch = searchQuery.isBlank() ||
+                    item.namaPelanggan.contains(searchQuery, ignoreCase = true) ||
+                    item.nomorHp.contains(searchQuery, ignoreCase = true) ||
+                    item.catatan.contains(searchQuery, ignoreCase = true)
+
+            val matchesStatus = when (selectedFilter) {
+                "Belum Lunas" -> item.status != "Lunas" && item.nominalSisa > 0
+                "Nota Lunas" -> item.status == "Lunas" || item.nominalSisa <= 0
+                else -> true
+            }
+
+            matchesSearch && matchesStatus
         }
     }
 
@@ -177,6 +193,29 @@ fun MenuPiutangPelangganScreen(
                         shape = RoundedCornerShape(12.dp),
                         colors = OutlinedTextFieldDefaults.colors()
                     )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    androidx.compose.foundation.lazy.LazyRow(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        val filters = listOf(
+                            "Belum Lunas" to "Belum Lunas",
+                            "Nota Lunas" to "Riwayat Nota Lunas",
+                            "Semua" to "Semua Piutang"
+                        )
+                        items(filters) { (key, label) ->
+                            val isSelected = selectedFilter == key
+                            FilterChip(
+                                selected = isSelected,
+                                onClick = { selectedFilter = key },
+                                label = { Text(label, fontSize = 12.sp, fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal) },
+                                colors = FilterChipDefaults.filterChipColors(
+                                    selectedContainerColor = if (key == "Nota Lunas") Color(0xFFE8F5E9) else MaterialTheme.colorScheme.primaryContainer,
+                                    selectedLabelColor = if (key == "Nota Lunas") Color(0xFF2E7D32) else MaterialTheme.colorScheme.onPrimaryContainer
+                                )
+                            )
+                        }
+                    }
                 }
             }
 
@@ -200,17 +239,44 @@ fun MenuPiutangPelangganScreen(
                     ReceivableCard(
                         receivable = receivable,
                         onPayment = { receivableForPayment = receivable },
-                        onDirectLunas = {
-                            viewModel.markCustomerReceivableLunas(
-                                piutangId = receivable.id,
-                                tanggal = Formatters.getCurrentDateFormatted()
-                            )
-                            Toast.makeText(context, "Piutang '${receivable.namaPelanggan}' telah dilunasi!", Toast.LENGTH_SHORT).show()
-                        }
+                        onDirectLunas = { receivableForConfirmLunas = receivable },
+                        onViewHistory = { receivableForHistory = receivable },
+                        onCancel = { receivableToCancel = receivable }
                     )
                 }
             }
         }
+    }
+
+    // Cancellation Dialog
+    receivableToCancel?.let { receivable ->
+        AlertDialog(
+            onDismissRequest = { receivableToCancel = null },
+            title = { Text("Batalkan Catatan Piutang?", fontWeight = FontWeight.Bold, color = Color(0xFFD32F2F)) },
+            text = {
+                Text(
+                    "Apakah Anda yakin ingin membatalkan dan menghapus catatan piutang '${receivable.namaPelanggan}' sebesar ${Formatters.formatRupiah(receivable.nominalAwal)}? Seluruh riwayat pembayarannya juga akan dihapus."
+                )
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        viewModel.cancelCustomerReceivable(receivable.id) {
+                            receivableToCancel = null
+                            Toast.makeText(context, "Catatan piutang berhasil dibatalkan!", Toast.LENGTH_SHORT).show()
+                        }
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFD32F2F))
+                ) {
+                    Text("Ya, Batalkan Piutang", fontWeight = FontWeight.Bold)
+                }
+            },
+            dismissButton = {
+                OutlinedButton(onClick = { receivableToCancel = null }) {
+                    Text("Tidak")
+                }
+            }
+        )
     }
 
     // Add Receivable Dialog
@@ -231,11 +297,77 @@ fun MenuPiutangPelangganScreen(
         )
     }
 
-    // Payment Dialog
+    // Confirmation Dialog for Pelunasan (Ya / Tidak)
+    receivableForConfirmLunas?.let { receivable ->
+        var selectedAccountCode by remember { mutableStateOf("TUNAI") }
+        AlertDialog(
+            onDismissRequest = { receivableForConfirmLunas = null },
+            title = { Text("Konfirmasi Pelunasan Piutang", fontWeight = FontWeight.Bold) },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Text(
+                        text = "Apakah Anda yakin ingin melunasi seluruh sisa piutang dari ${receivable.namaPelanggan} sebesar ${Formatters.formatRupiah(receivable.nominalSisa)}?",
+                        fontSize = 14.sp
+                    )
+                    Text(
+                        text = "Pilih Rekening / Kas Penerima Pembayaran:",
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        FilterChip(
+                            selected = selectedAccountCode == "TUNAI",
+                            onClick = { selectedAccountCode = "TUNAI" },
+                            label = { Text("Kas Tunai", fontSize = 11.sp) },
+                            colors = FilterChipDefaults.filterChipColors(
+                                selectedContainerColor = Color(0xFFE8F5E9),
+                                selectedLabelColor = Color(0xFF2E7D32)
+                            )
+                        )
+                        allCashAccounts.filter { it.accountType != "TUNAI" }.forEach { acc ->
+                            FilterChip(
+                                selected = selectedAccountCode == acc.accountType,
+                                onClick = { selectedAccountCode = acc.accountType },
+                                label = { Text(acc.accountName, fontSize = 11.sp) },
+                                colors = FilterChipDefaults.filterChipColors(
+                                    selectedContainerColor = Color(0xFFE3F2FD),
+                                    selectedLabelColor = Color(0xFF1565C0)
+                                )
+                            )
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        viewModel.markCustomerReceivableLunas(
+                            piutangId = receivable.id,
+                            tanggal = Formatters.getCurrentDateFormatted(),
+                            metodePembayaran = selectedAccountCode
+                        )
+                        receivableForConfirmLunas = null
+                        Toast.makeText(context, "Piutang '${receivable.namaPelanggan}' berhasil dilunasi!", Toast.LENGTH_SHORT).show()
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2E7D32))
+                ) {
+                    Text("Ya, Pelunasan", fontWeight = FontWeight.Bold)
+                }
+            },
+            dismissButton = {
+                OutlinedButton(onClick = { receivableForConfirmLunas = null }) {
+                    Text("Tidak / Batal")
+                }
+            }
+        )
+    }
+
+    // Payment Dialog (Bayar Sebagian with Bank Accounts)
     receivableForPayment?.let { receivable ->
         PaymentDialog(
             title = "Pembayaran Piutang - ${receivable.namaPelanggan}",
             sisaTagihan = receivable.nominalSisa,
+            allAccounts = allCashAccounts,
             onDismiss = { receivableForPayment = null },
             onConfirm = { nominal, tgl, cat, metode ->
                 viewModel.addCustomerPayment(
@@ -250,13 +382,126 @@ fun MenuPiutangPelangganScreen(
             }
         )
     }
+
+    // Payment History & Cancellation Dialog
+    receivableForHistory?.let { receivable ->
+        val paymentsList by viewModel.getCustomerPayments(receivable.id).collectAsStateWithLifecycle(emptyList())
+        var paymentToCancel by remember { mutableStateOf<com.example.data.entity.CustomerPaymentEntity?>(null) }
+
+        AlertDialog(
+            onDismissRequest = { receivableForHistory = null },
+            title = {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(imageVector = Icons.Default.History, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text("Riwayat Pelunasan - ${receivable.namaPelanggan}", fontSize = 16.sp, fontWeight = FontWeight.Bold)
+                }
+            },
+            text = {
+                Column(modifier = Modifier.fillMaxWidth()) {
+                    if (paymentsList.isEmpty()) {
+                        Text(
+                            text = "Belum ada riwayat pembayaran untuk piutang ini.",
+                            fontSize = 13.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(vertical = 12.dp)
+                        )
+                    } else {
+                        androidx.compose.foundation.lazy.LazyColumn(
+                            modifier = Modifier.heightIn(max = 300.dp),
+                            verticalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            items(paymentsList, key = { it.id }) { payment ->
+                                Card(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)),
+                                    shape = RoundedCornerShape(8.dp)
+                                ) {
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(10.dp),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Column(modifier = Modifier.weight(1f)) {
+                                            Text(
+                                                text = Formatters.formatRupiah(payment.nominalBayar),
+                                                fontWeight = FontWeight.Bold,
+                                                color = Color(0xFF2E7D32),
+                                                fontSize = 14.sp
+                                            )
+                                            Text(
+                                                text = "Tgl: ${Formatters.formatDateToIndonesian(payment.tanggal)} | Akun: ${payment.metodePembayaran}",
+                                                fontSize = 11.sp,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                                            )
+                                            if (payment.catatan.isNotBlank()) {
+                                                Text(
+                                                    text = "Catatan: ${payment.catatan}",
+                                                    fontSize = 11.sp,
+                                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                                )
+                                            }
+                                        }
+
+                                        TextButton(
+                                            onClick = { paymentToCancel = payment },
+                                            colors = ButtonDefaults.textButtonColors(contentColor = Color(0xFFD32F2F))
+                                        ) {
+                                            Text("Batalkan Pelunasan", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { receivableForHistory = null }) {
+                    Text("Tutup")
+                }
+            }
+        )
+
+        paymentToCancel?.let { payment ->
+            AlertDialog(
+                onDismissRequest = { paymentToCancel = null },
+                title = { Text("Batalkan Pelunasan?", fontWeight = FontWeight.Bold, color = Color(0xFFD32F2F)) },
+                text = {
+                    Text("Apakah Anda yakin ingin membatalkan pembayaran sebesar ${Formatters.formatRupiah(payment.nominalBayar)}? Sisa piutang akan bertambah kembali dan kas akan disesuaikan.")
+                },
+                confirmButton = {
+                    Button(
+                        onClick = {
+                            viewModel.cancelCustomerPayment(payment.id) {
+                                paymentToCancel = null
+                                Toast.makeText(context, "Pelunasan berhasil dibatalkan!", Toast.LENGTH_SHORT).show()
+                            }
+                        },
+                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFD32F2F))
+                    ) {
+                        Text("Ya, Batalkan Pelunasan", fontWeight = FontWeight.Bold)
+                    }
+                },
+                dismissButton = {
+                    OutlinedButton(onClick = { paymentToCancel = null }) {
+                        Text("Tidak")
+                    }
+                }
+            )
+        }
+    }
 }
 
 @Composable
 fun ReceivableCard(
     receivable: CustomerReceivableEntity,
     onPayment: () -> Unit,
-    onDirectLunas: () -> Unit
+    onDirectLunas: () -> Unit,
+    onViewHistory: () -> Unit,
+    onCancel: () -> Unit
 ) {
     val isLunas = receivable.status == "Lunas"
     val isOverdue = !isLunas && Formatters.isOverdue(receivable.jatuhTempo)
@@ -385,29 +630,51 @@ fun ReceivableCard(
                 )
             }
 
-            if (!isLunas) {
-                Spacer(modifier = Modifier.height(12.dp))
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+            Spacer(modifier = Modifier.height(12.dp))
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(4.dp)
+            ) {
+                OutlinedButton(
+                    onClick = onViewHistory,
+                    modifier = Modifier.weight(1f),
+                    shape = RoundedCornerShape(8.dp),
+                    contentPadding = PaddingValues(horizontal = 2.dp, vertical = 6.dp)
                 ) {
+                    Icon(imageVector = Icons.Default.History, contentDescription = null, modifier = Modifier.size(14.dp).padding(end = 2.dp))
+                    Text("Riwayat", fontSize = 10.sp)
+                }
+
+                OutlinedButton(
+                    onClick = onCancel,
+                    modifier = Modifier.weight(1f),
+                    shape = RoundedCornerShape(8.dp),
+                    colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFFD32F2F)),
+                    contentPadding = PaddingValues(horizontal = 2.dp, vertical = 6.dp)
+                ) {
+                    Text("Batalkan", fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                }
+
+                if (!isLunas) {
                     OutlinedButton(
                         onClick = onPayment,
-                        modifier = Modifier.weight(1f),
-                        shape = RoundedCornerShape(8.dp)
+                        modifier = Modifier.weight(1.1f),
+                        shape = RoundedCornerShape(8.dp),
+                        contentPadding = PaddingValues(horizontal = 2.dp, vertical = 6.dp)
                     ) {
-                        Icon(imageVector = Icons.Default.Payment, contentDescription = null, modifier = Modifier.padding(end = 4.dp))
-                        Text("Bayar Sebagian", fontSize = 12.sp)
+                        Icon(imageVector = Icons.Default.Payment, contentDescription = null, modifier = Modifier.size(14.dp).padding(end = 2.dp))
+                        Text("Bayar", fontSize = 10.sp)
                     }
 
                     Button(
                         onClick = onDirectLunas,
-                        modifier = Modifier.weight(1f),
+                        modifier = Modifier.weight(1.1f),
                         shape = RoundedCornerShape(8.dp),
-                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2E7D32))
+                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2E7D32)),
+                        contentPadding = PaddingValues(horizontal = 2.dp, vertical = 6.dp)
                     ) {
-                        Icon(imageVector = Icons.Default.CheckCircle, contentDescription = null, modifier = Modifier.padding(end = 4.dp))
-                        Text("Pelunasan", fontSize = 12.sp)
+                        Icon(imageVector = Icons.Default.CheckCircle, contentDescription = null, modifier = Modifier.size(14.dp).padding(end = 2.dp))
+                        Text("Pelunasan", fontSize = 10.sp)
                     }
                 }
             }
@@ -535,13 +802,14 @@ fun AddReceivableDialog(
 fun PaymentDialog(
     title: String,
     sisaTagihan: Double,
+    allAccounts: List<com.example.data.entity.CashAccountEntity> = emptyList(),
     onDismiss: () -> Unit,
     onConfirm: (nominal: Double, tgl: String, cat: String, metode: String) -> Unit
 ) {
     var nominalStr by remember { mutableStateOf("") }
     var tanggal by remember { mutableStateOf(Formatters.getCurrentDateFormatted()) }
     var catatan by remember { mutableStateOf("") }
-    var metodePembayaran by remember { mutableStateOf("Tunai") } // "Tunai" or "Transfer"
+    var metodePembayaran by remember { mutableStateOf("TUNAI") }
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -555,33 +823,34 @@ fun PaymentDialog(
                 )
 
                 Text(
-                    text = "Metode Pembayaran Masuk:",
+                    text = "Pilih Rekening / Kas Penerima:",
                     fontSize = 12.sp,
                     fontWeight = FontWeight.SemiBold
                 )
 
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    FilterChip(
-                        selected = metodePembayaran == "Tunai",
-                        onClick = { metodePembayaran = "Tunai" },
-                        label = { Text("Kas Tunai") },
-                        colors = FilterChipDefaults.filterChipColors(
-                            selectedContainerColor = Color(0xFFE8F5E9),
-                            selectedLabelColor = Color(0xFF2E7D32)
-                        ),
-                        modifier = Modifier.weight(1f)
-                    )
-
-                    FilterChip(
-                        selected = metodePembayaran == "Transfer",
-                        onClick = { metodePembayaran = "Transfer" },
-                        label = { Text("Kas Bank") },
-                        colors = FilterChipDefaults.filterChipColors(
-                            selectedContainerColor = Color(0xFFE3F2FD),
-                            selectedLabelColor = Color(0xFF1565C0)
-                        ),
-                        modifier = Modifier.weight(1f)
-                    )
+                androidx.compose.foundation.lazy.LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    item {
+                        FilterChip(
+                            selected = metodePembayaran == "TUNAI" || metodePembayaran == "Tunai",
+                            onClick = { metodePembayaran = "TUNAI" },
+                            label = { Text("Kas Tunai", fontSize = 11.sp) },
+                            colors = FilterChipDefaults.filterChipColors(
+                                selectedContainerColor = Color(0xFFE8F5E9),
+                                selectedLabelColor = Color(0xFF2E7D32)
+                            )
+                        )
+                    }
+                    items(allAccounts.filter { it.accountType != "TUNAI" }, key = { it.accountType }) { acc ->
+                        FilterChip(
+                            selected = metodePembayaran == acc.accountType,
+                            onClick = { metodePembayaran = acc.accountType },
+                            label = { Text(acc.accountName, fontSize = 11.sp) },
+                            colors = FilterChipDefaults.filterChipColors(
+                                selectedContainerColor = Color(0xFFE3F2FD),
+                                selectedLabelColor = Color(0xFF1565C0)
+                            )
+                        )
+                    }
                 }
 
                 OutlinedTextField(

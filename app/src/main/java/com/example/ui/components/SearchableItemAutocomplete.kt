@@ -6,6 +6,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -16,20 +17,25 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Inventory2
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Badge
+import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -41,6 +47,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.data.entity.ItemEntity
@@ -50,14 +57,19 @@ import com.example.util.ItemMatcher
 @Composable
 fun SearchableItemAutocomplete(
     itemsList: List<ItemEntity>,
-    onItemSelected: (ItemEntity) -> Unit,
+    onItemSelected: (ItemEntity) -> Unit = {},
+    onItemSelectedWithQty: ((ItemEntity, Int) -> Unit)? = null,
     placeholderText: String = "Ketik nama atau kode barang (misal: 609, 663)...",
     excludedItemIds: List<Long> = emptyList(),
     draftItemQuantities: Map<Long, Int> = emptyMap(),
+    isPenjualanMode: Boolean = false,
     modifier: Modifier = Modifier
 ) {
     var searchQuery by remember { mutableStateOf("") }
     var isExpanded by remember { mutableStateOf(false) }
+
+    var selectedItemForQty by remember { mutableStateOf<ItemEntity?>(null) }
+    var qtyInputString by remember { mutableStateOf("1") }
 
     val filteredItems = remember(searchQuery, itemsList) {
         if (searchQuery.isBlank()) {
@@ -126,7 +138,8 @@ fun SearchableItemAutocomplete(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .clickable {
-                                    onItemSelected(item)
+                                    selectedItemForQty = item
+                                    qtyInputString = "1"
                                     searchQuery = ""
                                     isExpanded = false
                                 }
@@ -240,5 +253,172 @@ fun SearchableItemAutocomplete(
                 )
             }
         }
+    }
+
+    selectedItemForQty?.let { item ->
+        val draftQty = draftItemQuantities[item.id] ?: 0
+        val parsedInputQty = qtyInputString.toIntOrNull() ?: 0
+        val totalAfterAdd = draftQty + parsedInputQty
+        val maxAvailableStock = if (isPenjualanMode) item.stok - draftQty else Int.MAX_VALUE
+        val isExceedingStock = isPenjualanMode && (parsedInputQty > maxAvailableStock)
+
+        AlertDialog(
+            onDismissRequest = { selectedItemForQty = null },
+            title = {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(
+                        imageVector = Icons.Default.Inventory2,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.padding(end = 8.dp)
+                    )
+                    Text(
+                        text = "Input Jumlah Barang",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+            },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Surface(
+                        color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.35f),
+                        shape = RoundedCornerShape(10.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Column(modifier = Modifier.padding(12.dp)) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                if (item.kodeBarang.isNotBlank()) {
+                                    Surface(
+                                        shape = RoundedCornerShape(4.dp),
+                                        color = MaterialTheme.colorScheme.secondaryContainer,
+                                        modifier = Modifier.padding(end = 6.dp)
+                                    ) {
+                                        Text(
+                                            text = item.kodeBarang,
+                                            style = MaterialTheme.typography.labelSmall,
+                                            fontWeight = FontWeight.Bold,
+                                            color = MaterialTheme.colorScheme.onSecondaryContainer,
+                                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                        )
+                                    }
+                                }
+                                Text(
+                                    text = item.namaBarang,
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 14.sp
+                                )
+                            }
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Text(
+                                text = if (isPenjualanMode) "Stok Tersedia: ${item.stok} unit" else "Stok Saat Ini: ${item.stok} unit",
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                color = if (isPenjualanMode && item.stok < 10) Color(0xFFD32F2F) else MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+
+                    if (draftQty > 0) {
+                        Surface(
+                            color = Color(0xFFFFF3E0),
+                            shape = RoundedCornerShape(8.dp),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Text(
+                                text = "💡 Sudah ada $draftQty unit di draf. Jumlah yang Anda input akan ditambahkan ke draf.",
+                                fontSize = 11.sp,
+                                color = Color(0xFFE65100),
+                                fontWeight = FontWeight.Medium,
+                                modifier = Modifier.padding(10.dp)
+                            )
+                        }
+                    }
+
+                    Text(
+                        text = "Masukkan Jumlah Barang:",
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.SemiBold
+                    )
+
+                    OutlinedTextField(
+                        value = qtyInputString,
+                        onValueChange = { input ->
+                            val digitsOnly = input.filter { it.isDigit() }
+                            qtyInputString = digitsOnly
+                        },
+                        label = { Text("Jumlah (Unit)") },
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                        singleLine = true,
+                        isError = isExceedingStock,
+                        trailingIcon = {
+                            if (qtyInputString.isNotEmpty()) {
+                                IconButton(onClick = { qtyInputString = "" }) {
+                                    Icon(Icons.Default.Close, contentDescription = "Clear")
+                                }
+                            }
+                        },
+                        modifier = Modifier.fillMaxWidth().testTag("input_qty_popup")
+                    )
+
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        listOf(1, 5, 10, 50).forEach { qtyAdd ->
+                            OutlinedButton(
+                                onClick = {
+                                    val current = qtyInputString.toIntOrNull() ?: 0
+                                    qtyInputString = (current + qtyAdd).toString()
+                                },
+                                contentPadding = PaddingValues(horizontal = 4.dp, vertical = 2.dp),
+                                modifier = Modifier.weight(1f)
+                            ) {
+                                Text("+$qtyAdd", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                            }
+                        }
+                    }
+
+                    if (isExceedingStock) {
+                        Text(
+                            text = "⚠️ Jumlah melebihi stok yang tersedia (Maksimal sisa: ${maxOf(0, maxAvailableStock)} unit)!",
+                            fontSize = 11.sp,
+                            color = MaterialTheme.colorScheme.error,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                    } else if (parsedInputQty > 0 && draftQty > 0) {
+                        Text(
+                            text = "Total di draf nanti: $totalAfterAdd unit",
+                            fontSize = 12.sp,
+                            color = Color(0xFF2E7D32),
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        if (parsedInputQty > 0 && !isExceedingStock) {
+                            if (onItemSelectedWithQty != null) {
+                                onItemSelectedWithQty(item, parsedInputQty)
+                            } else {
+                                repeat(parsedInputQty) { onItemSelected(item) }
+                            }
+                            selectedItemForQty = null
+                        }
+                    },
+                    enabled = parsedInputQty > 0 && !isExceedingStock,
+                    modifier = Modifier.testTag("btn_konfirmasi_tambah_qty")
+                ) {
+                    Text("Tambah ke Draf")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { selectedItemForQty = null }) {
+                    Text("Batal")
+                }
+            }
+        )
     }
 }

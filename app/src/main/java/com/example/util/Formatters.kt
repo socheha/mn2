@@ -40,6 +40,11 @@ object Formatters {
         return sdf.format(Date(timestamp))
     }
 
+    fun formatTimestampToDateString(timestamp: Long): String {
+        val sdf = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault())
+        return sdf.format(Date(timestamp))
+    }
+
     fun getAddDaysDate(fromDateString: String, days: Int): String {
         return try {
             val sdf = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault())

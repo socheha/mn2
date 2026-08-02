@@ -87,14 +87,12 @@ fun MenuStokTokoScreen(viewModel: MainViewModel) {
     var showTransferDialog by remember { mutableStateOf(false) }
     var selectedItemForTransfer by remember { mutableStateOf<ItemEntity?>(null) }
 
-    var showInputStokLainDialog by remember { mutableStateOf(false) }
-    var selectedItemForInputLain by remember { mutableStateOf<ItemEntity?>(null) }
-
     var showAdjustDialog by remember { mutableStateOf(false) }
     var selectedItemForAdjust by remember { mutableStateOf<ItemEntity?>(null) }
 
     var showHistoryDialog by remember { mutableStateOf(false) }
     var selectedItemForHistory by remember { mutableStateOf<ItemEntity?>(null) }
+    var showTransferHistoryDialog by remember { mutableStateOf(false) }
 
     // Calculate Asset values
     val totalValueUtama = allItems.sumOf { it.actualStokUtama * it.hargaModal }
@@ -110,7 +108,7 @@ fun MenuStokTokoScreen(viewModel: MainViewModel) {
             val matchFilter = when (selectedFilter) {
                 "Utama" -> item.actualStokUtama > 0
                 "Cabang" -> item.actualStokCabang > 0
-                "Menipis" -> item.totalStokCombined < 10
+                "Menipis" -> item.actualStokCabang < 5
                 else -> true
             }
             matchQuery && matchFilter
@@ -268,7 +266,7 @@ fun MenuStokTokoScreen(viewModel: MainViewModel) {
         item {
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                horizontalArrangement = Arrangement.spacedBy(6.dp)
             ) {
                 Button(
                     onClick = {
@@ -279,23 +277,20 @@ fun MenuStokTokoScreen(viewModel: MainViewModel) {
                     colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
                     shape = RoundedCornerShape(10.dp)
                 ) {
-                    Icon(imageVector = Icons.Default.SwapHoriz, contentDescription = null, modifier = Modifier.size(18.dp))
-                    Spacer(modifier = Modifier.width(6.dp))
-                    Text("Transfer Stok", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                    Icon(imageVector = Icons.Default.SwapHoriz, contentDescription = null, modifier = Modifier.size(16.dp))
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text("Transfer", fontSize = 12.sp, fontWeight = FontWeight.Bold)
                 }
 
                 Button(
-                    onClick = {
-                        selectedItemForInputLain = null
-                        showInputStokLainDialog = true
-                    },
-                    modifier = Modifier.weight(1f).testTag("btn_input_stok_lain"),
-                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2E7D32)),
+                    onClick = { showTransferHistoryDialog = true },
+                    modifier = Modifier.weight(1f).testTag("btn_riwayat_transfer"),
+                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.secondary),
                     shape = RoundedCornerShape(10.dp)
                 ) {
-                    Icon(imageVector = Icons.Default.Add, contentDescription = null, modifier = Modifier.size(18.dp))
-                    Spacer(modifier = Modifier.width(6.dp))
-                    Text("+ Stok Toko Lain", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                    Icon(imageVector = Icons.Default.History, contentDescription = null, modifier = Modifier.size(16.dp))
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text("Riwayat Transfer", fontSize = 12.sp, fontWeight = FontWeight.Bold)
                 }
             }
         }
@@ -332,7 +327,7 @@ fun MenuStokTokoScreen(viewModel: MainViewModel) {
                     "Semua" to "Semua Barang",
                     "Utama" to "Ada di Gudang",
                     "Cabang" to "Ada di Stok Toko",
-                    "Menipis" to "Stok Menipis (<10)"
+                    "Menipis" to "Stok Toko Menipis (<5)"
                 )
                 items(filters) { (key, label) ->
                     val isSelected = selectedFilter == key
@@ -414,28 +409,6 @@ fun MenuStokTokoScreen(viewModel: MainViewModel) {
         )
     }
 
-    // --- DIALOG 2: Input Stok Toko Lain / Direct Add ---
-    if (showInputStokLainDialog) {
-        InputStokTokoLainDialog(
-            allItems = allItems,
-            initialItem = selectedItemForInputLain,
-            onDismiss = {
-                showInputStokLainDialog = false
-                selectedItemForInputLain = null
-            },
-            onConfirm = { item, targetStore, qty, note ->
-                viewModel.addStockToStore(
-                    itemId = item.id,
-                    targetStore = targetStore,
-                    qtyToAdd = qty,
-                    note = note
-                )
-                showInputStokLainDialog = false
-                selectedItemForInputLain = null
-            }
-        )
-    }
-
     // --- DIALOG 3: Edit / Adjust Stok Direct ---
     if (showAdjustDialog && selectedItemForAdjust != null) {
         AdjustStokDirectDialog(
@@ -466,6 +439,14 @@ fun MenuStokTokoScreen(viewModel: MainViewModel) {
                 showHistoryDialog = false
                 selectedItemForHistory = null
             }
+        )
+    }
+
+    // --- DIALOG 5: Riwayat Transfer Stok Gudang -> Toko ---
+    if (showTransferHistoryDialog) {
+        RiwayatTransferStokDialog(
+            viewModel = viewModel,
+            onDismiss = { showTransferHistoryDialog = false }
         )
     }
 }
@@ -619,11 +600,7 @@ fun TransferStokDialog(
     var itemSearchQuery by remember { mutableStateOf("") }
 
     val filteredDropdownItems = remember(allItems, itemSearchQuery) {
-        if (itemSearchQuery.isBlank()) allItems
-        else allItems.filter {
-            it.namaBarang.contains(itemSearchQuery, ignoreCase = true) ||
-                    it.kodeBarang.contains(itemSearchQuery, ignoreCase = true)
-        }
+        com.example.util.ItemMatcher.searchItems(itemSearchQuery, allItems)
     }
 
     var fromStore by remember { mutableStateOf("Gudang") }
@@ -857,146 +834,6 @@ fun TransferStokDialog(
     )
 }
 
-// --- Dialog Input Stok Toko Lain ---
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-fun InputStokTokoLainDialog(
-    allItems: List<ItemEntity>,
-    initialItem: ItemEntity?,
-    onDismiss: () -> Unit,
-    onConfirm: (item: ItemEntity, targetStore: String, qty: Int, note: String) -> Unit
-) {
-    var selectedItem by remember { mutableStateOf(initialItem ?: allItems.firstOrNull()) }
-    var itemExpanded by remember { mutableStateOf(false) }
-
-    var targetStore by remember { mutableStateOf("Stok Toko") }
-    var qtyText by remember { mutableStateOf("1") }
-    var noteText by remember { mutableStateOf("") }
-    var errorMessage by remember { mutableStateOf("") }
-
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text("+ Input Stok Toko Lain ke Master", fontWeight = FontWeight.Bold, fontSize = 16.sp) },
-        text = {
-            Column {
-                Text(
-                    text = "Fitur ini menambahkan stok dari Toko Lain/Cabang langsung terinput ke Stok Master Barang.",
-                    fontSize = 11.sp,
-                    color = Color.Gray
-                )
-                Spacer(modifier = Modifier.height(8.dp))
-
-                Text("Pilih Barang:", fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
-                Spacer(modifier = Modifier.height(4.dp))
-
-                ExposedDropdownMenuBox(
-                    expanded = itemExpanded,
-                    onExpandedChange = { itemExpanded = !itemExpanded }
-                ) {
-                    OutlinedTextField(
-                        value = selectedItem?.namaBarang ?: "Pilih Barang",
-                        onValueChange = {},
-                        readOnly = true,
-                        trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = itemExpanded) },
-                        modifier = Modifier.menuAnchor().fillMaxWidth(),
-                        shape = RoundedCornerShape(8.dp)
-                    )
-                    ExposedDropdownMenu(
-                        expanded = itemExpanded,
-                        onDismissRequest = { itemExpanded = false }
-                    ) {
-                        allItems.forEach { item ->
-                            DropdownMenuItem(
-                                text = {
-                                    Column {
-                                        Text(item.namaBarang, fontWeight = FontWeight.Bold, fontSize = 13.sp)
-                                        Text("Master Stok: ${item.totalStokCombined} pcs", fontSize = 11.sp, color = Color.Gray)
-                                    }
-                                },
-                                onClick = {
-                                    selectedItem = item
-                                    itemExpanded = false
-                                }
-                            )
-                        }
-                    }
-                }
-
-                Spacer(modifier = Modifier.height(10.dp))
-
-                Text("Lokasi Toko Tujuan:", fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    FilterChip(
-                        selected = targetStore == "Stok Toko" || targetStore == "Toko Cabang",
-                        onClick = { targetStore = "Stok Toko" },
-                        label = { Text("Stok Toko", fontSize = 11.sp) }
-                    )
-                    FilterChip(
-                        selected = targetStore == "Gudang" || targetStore == "Toko Utama",
-                        onClick = { targetStore = "Gudang" },
-                        label = { Text("Gudang", fontSize = 11.sp) }
-                    )
-                }
-
-                Spacer(modifier = Modifier.height(8.dp))
-
-                OutlinedTextField(
-                    value = qtyText,
-                    onValueChange = {
-                        qtyText = it.filter { char -> char.isDigit() }
-                        errorMessage = ""
-                    },
-                    label = { Text("Jumlah Tambahan Stok (Pcs)") },
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(8.dp)
-                )
-
-                Spacer(modifier = Modifier.height(8.dp))
-
-                OutlinedTextField(
-                    value = noteText,
-                    onValueChange = { noteText = it },
-                    label = { Text("Keterangan Sumber Stok (Opsional)") },
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(8.dp)
-                )
-
-                if (errorMessage.isNotBlank()) {
-                    Spacer(modifier = Modifier.height(4.dp))
-                    Text(errorMessage, color = Color.Red, fontSize = 11.sp)
-                }
-            }
-        },
-        confirmButton = {
-            Button(
-                onClick = {
-                    val item = selectedItem
-                    val qty = qtyText.toIntOrNull() ?: 0
-                    if (item == null) {
-                        errorMessage = "Pilih barang terlebih dahulu"
-                        return@Button
-                    }
-                    if (qty <= 0) {
-                        errorMessage = "Masukkan jumlah yang valid (> 0)"
-                        return@Button
-                    }
-
-                    onConfirm(item, targetStore, qty, noteText)
-                },
-                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2E7D32))
-            ) {
-                Text("+ Tambah ke Stok")
-            }
-        },
-        dismissButton = {
-            TextButton(onClick = onDismiss) {
-                Text("Batal")
-            }
-        }
-    )
-}
-
 // --- Dialog Adjust Direct ---
 @Composable
 fun AdjustStokDirectDialog(
@@ -1139,6 +976,81 @@ fun RiwayatStokItemDialog(
                                     fontSize = 13.sp,
                                     color = if (h.jumlahPerubahan >= 0) Color(0xFF2E7D32) else Color(0xFFC62828)
                                 )
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            Button(onClick = onDismiss) {
+                Text("Tutup")
+            }
+        }
+    )
+}
+
+// --- Dialog Riwayat Transfer Stok Gudang -> Toko ---
+@Composable
+fun RiwayatTransferStokDialog(
+    viewModel: MainViewModel,
+    onDismiss: () -> Unit
+) {
+    val allHistory by viewModel.allStockHistory.collectAsState(initial = emptyList())
+    val transferHistories = remember(allHistory) {
+        allHistory.filter { h ->
+            h.jenis.contains("Transfer", ignoreCase = true) ||
+                    h.keterangan.contains("Transfer", ignoreCase = true) ||
+                    h.keterangan.contains("Gudang", ignoreCase = true) ||
+                    h.keterangan.contains("Toko", ignoreCase = true)
+        }
+    }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(Icons.Default.CompareArrows, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                Spacer(modifier = Modifier.width(8.dp))
+                Text("Riwayat Transfer Gudang ➔ Toko", fontWeight = FontWeight.Bold, fontSize = 16.sp)
+            }
+        },
+        text = {
+            if (transferHistories.isEmpty()) {
+                Text("Belum ada riwayat perpindahan / transfer barang antara Gudang dan Toko.", color = Color.Gray, fontSize = 12.sp)
+            } else {
+                LazyColumn(
+                    modifier = Modifier.height(280.dp),
+                    verticalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    items(transferHistories) { h ->
+                        Card(
+                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)),
+                            shape = RoundedCornerShape(8.dp)
+                        ) {
+                            Column(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(10.dp)
+                            ) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Text(h.namaBarang, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                                    Text(
+                                        text = "${if (h.jumlahPerubahan >= 0) "+" else ""}${h.jumlahPerubahan} Pcs",
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = 13.sp,
+                                        color = if (h.jumlahPerubahan >= 0) Color(0xFF2E7D32) else Color(0xFFC62828)
+                                    )
+                                }
+                                Text("SKU: ${h.kodeBarang.ifBlank { "-" }} • Outlet: ${h.namaToko}", fontSize = 11.sp, color = MaterialTheme.colorScheme.primary)
+                                if (h.keterangan.isNotBlank()) {
+                                    Text(h.keterangan, fontSize = 11.sp, color = Color.Gray)
+                                }
+                                Text(Formatters.formatTimestamp(h.timestamp), fontSize = 10.sp, color = Color.Gray)
                             }
                         }
                     }

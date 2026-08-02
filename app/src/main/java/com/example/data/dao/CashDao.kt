@@ -52,6 +52,9 @@ interface CashDao {
     @Query("DELETE FROM cash_mutations")
     suspend fun deleteAllCashMutations()
 
+    @Query("SELECT * FROM cash_mutations WHERE id = :id")
+    suspend fun getMutationById(id: Long): CashMutationEntity?
+
     @Query("DELETE FROM cash_mutations WHERE id = :id")
     suspend fun deleteMutation(id: Long)
 }
