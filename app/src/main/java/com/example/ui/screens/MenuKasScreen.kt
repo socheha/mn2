@@ -84,6 +84,38 @@ fun MenuKasScreen(
     val allAccounts by viewModel.allCashAccounts.collectAsStateWithLifecycle()
     val mutations by viewModel.allCashMutations.collectAsStateWithLifecycle()
 
+    val availableAccounts = remember(allAccounts) {
+        val registeredTypes = allAccounts.map { it.accountType }.toSet()
+        val combined = mutableListOf<com.example.data.entity.AccountTypeInfo>()
+
+        val tunaiInDb = allAccounts.find { it.accountType == "TUNAI" }
+        combined.add(
+            com.example.data.entity.AccountTypeInfo(
+                type = "TUNAI",
+                name = tunaiInDb?.accountName ?: "Kas Tunai Toko",
+                category = "TUNAI"
+            )
+        )
+
+        allAccounts.filter { it.accountType != "TUNAI" }.forEach { acc ->
+            combined.add(
+                com.example.data.entity.AccountTypeInfo(
+                    type = acc.accountType,
+                    name = acc.accountName,
+                    category = com.example.data.entity.CashAccountDefaults.getAccountCategory(acc.accountType)
+                )
+            )
+        }
+
+        com.example.data.entity.CashAccountDefaults.ALL_DEFAULT_ACCOUNTS.forEach { defaultAcc ->
+            if (defaultAcc.type !in registeredTypes && defaultAcc.type != "TUNAI") {
+                combined.add(defaultAcc)
+            }
+        }
+
+        combined
+    }
+
     var showKasMasukDialog by remember { mutableStateOf(false) }
     var showKasKeluarDialog by remember { mutableStateOf(false) }
     var showTransferDialog by remember { mutableStateOf(false) }
@@ -838,14 +870,15 @@ fun MenuKasScreen(
                     )
 
                     androidx.compose.foundation.lazy.LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                        items(com.example.data.entity.CashAccountDefaults.ALL_DEFAULT_ACCOUNTS) { acc ->
+                        items(availableAccounts, key = { it.type }) { acc ->
+                            val accSaldo = allAccounts.find { it.accountType == acc.type }?.saldo ?: 0.0
                             FilterChip(
                                 selected = targetAccountCode == acc.type,
                                 onClick = { targetAccountCode = acc.type },
-                                label = { Text(acc.name, fontSize = 11.sp) },
+                                label = { Text("${acc.name} (${Formatters.formatRupiah(accSaldo)})", fontSize = 11.sp) },
                                 colors = FilterChipDefaults.filterChipColors(
-                                    selectedContainerColor = Color(0xFFE8F5E9),
-                                    selectedLabelColor = Color(0xFF2E7D32)
+                                    selectedContainerColor = if (acc.type == "TUNAI") Color(0xFFE8F5E9) else Color(0xFFE3F2FD),
+                                    selectedLabelColor = if (acc.type == "TUNAI") Color(0xFF2E7D32) else Color(0xFF1565C0)
                                 )
                             )
                         }
@@ -934,12 +967,14 @@ fun MenuKasScreen(
                     onClick = {
                         val amount = nominalStr.toDoubleOrNull() ?: 0.0
                         if (amount > 0) {
+                            val selAcc = availableAccounts.find { it.type == targetAccountCode }
                             viewModel.addIncome(
                                 accountType = targetAccountCode,
                                 amount = amount,
                                 category = kategori,
                                 note = keterangan.ifBlank { kategori },
-                                date = tanggal
+                                date = tanggal,
+                                accountName = selAcc?.name ?: ""
                             )
                             showKasMasukDialog = false
                         }
@@ -994,14 +1029,15 @@ fun MenuKasScreen(
                     )
 
                     androidx.compose.foundation.lazy.LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                        items(com.example.data.entity.CashAccountDefaults.ALL_DEFAULT_ACCOUNTS) { acc ->
+                        items(availableAccounts, key = { it.type }) { acc ->
+                            val accSaldo = allAccounts.find { it.accountType == acc.type }?.saldo ?: 0.0
                             FilterChip(
                                 selected = sumberKasCode == acc.type,
                                 onClick = { sumberKasCode = acc.type },
-                                label = { Text(acc.name, fontSize = 11.sp) },
+                                label = { Text("${acc.name} (${Formatters.formatRupiah(accSaldo)})", fontSize = 11.sp) },
                                 colors = FilterChipDefaults.filterChipColors(
-                                    selectedContainerColor = Color(0xFFFFEBEE),
-                                    selectedLabelColor = Color(0xFFC62828)
+                                    selectedContainerColor = if (acc.type == "TUNAI") Color(0xFFE8F5E9) else Color(0xFFFFEBEE),
+                                    selectedLabelColor = if (acc.type == "TUNAI") Color(0xFF2E7D32) else Color(0xFFC62828)
                                 )
                             )
                         }
@@ -1090,12 +1126,14 @@ fun MenuKasScreen(
                     onClick = {
                         val amount = nominalStr.toDoubleOrNull() ?: 0.0
                         if (amount > 0) {
+                            val selAcc = availableAccounts.find { it.type == sumberKasCode }
                             viewModel.addExpense(
                                 accountType = sumberKasCode,
                                 amount = amount,
                                 category = kategori,
                                 note = keterangan.ifBlank { kategori },
-                                date = tanggal
+                                date = tanggal,
+                                accountName = selAcc?.name ?: ""
                             )
                             showKasKeluarDialog = false
                         }
@@ -1130,21 +1168,6 @@ fun MenuKasScreen(
                     nominalStr = if (res % 1.0 == 0.0) res.toLong().toString() else res.toString()
                 }
             )
-        }
-
-        val availableAccounts = remember(allAccounts) {
-            val defaults = com.example.data.entity.CashAccountDefaults.ALL_DEFAULT_ACCOUNTS
-            val registeredTypes = allAccounts.map { it.accountType }.toSet()
-            val combined = allAccounts.map {
-                com.example.data.entity.AccountTypeInfo(it.accountType, it.accountName, com.example.data.entity.CashAccountDefaults.getAccountCategory(it.accountType))
-            }.toMutableList()
-
-            defaults.forEach { d ->
-                if (d.type !in registeredTypes) {
-                    combined.add(d)
-                }
-            }
-            combined
         }
 
         AlertDialog(
@@ -1277,10 +1300,11 @@ fun MenuKasScreen(
 
     // --- Dialog Update Saldo Manual ---
     if (showEditSaldoDialog) {
-        val accountName = com.example.data.entity.CashAccountDefaults.getAccountName(targetAccountForEdit)
+        val selAcc = availableAccounts.find { it.type == targetAccountForEdit }
+        val accountName = selAcc?.name ?: com.example.data.entity.CashAccountDefaults.getAccountName(targetAccountForEdit)
         val currentEntity = allAccounts.find { it.accountType == targetAccountForEdit }
         val currentSaldo = currentEntity?.saldo ?: 0.0
-        var newSaldoStr by remember { mutableStateOf(currentSaldo.toLong().toString()) }
+        var newSaldoStr by remember(targetAccountForEdit, currentSaldo) { mutableStateOf(currentSaldo.toLong().toString()) }
         var noteStr by remember { mutableStateOf("") }
 
         AlertDialog(
@@ -1301,7 +1325,8 @@ fun MenuKasScreen(
                     )
 
                     androidx.compose.foundation.lazy.LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                        items(com.example.data.entity.CashAccountDefaults.ALL_DEFAULT_ACCOUNTS) { acc ->
+                        items(availableAccounts, key = { it.type }) { acc ->
+                            val accSaldo = allAccounts.find { it.accountType == acc.type }?.saldo ?: 0.0
                             FilterChip(
                                 selected = targetAccountForEdit == acc.type,
                                 onClick = {
@@ -1309,7 +1334,7 @@ fun MenuKasScreen(
                                     val selSaldo = allAccounts.find { it.accountType == acc.type }?.saldo ?: 0.0
                                     newSaldoStr = selSaldo.toLong().toString()
                                 },
-                                label = { Text(acc.name, fontSize = 11.sp) }
+                                label = { Text("${acc.name} (${Formatters.formatRupiah(accSaldo)})", fontSize = 11.sp) }
                             )
                         }
                     }
@@ -1347,7 +1372,8 @@ fun MenuKasScreen(
                             viewModel.updateCashBalanceManual(
                                 accountType = targetAccountForEdit,
                                 newBalance = newAmount,
-                                note = noteStr
+                                note = noteStr,
+                                accountName = accountName
                             )
                             showEditSaldoDialog = false
                         }

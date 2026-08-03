@@ -250,11 +250,18 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     val allCashMutations: StateFlow<List<CashMutationEntity>> = cashDao.getAllMutations()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
-    suspend fun recordCashInDirect(accountType: String, amount: Double, category: String, note: String, date: String) {
+    suspend fun recordCashInDirect(
+        accountType: String,
+        amount: Double,
+        category: String,
+        note: String,
+        date: String,
+        accountName: String = ""
+    ) {
         if (amount <= 0) return
         val currentAccount = cashDao.getAccountDirect(accountType) ?: CashAccountEntity(
             accountType = accountType,
-            accountName = com.example.data.entity.CashAccountDefaults.getAccountName(accountType),
+            accountName = if (accountName.isNotBlank()) accountName else com.example.data.entity.CashAccountDefaults.getAccountName(accountType),
             saldo = 0.0
         )
         val newSaldo = currentAccount.saldo + amount
@@ -272,11 +279,18 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         )
     }
 
-    suspend fun recordCashOutDirect(accountType: String, amount: Double, category: String, note: String, date: String) {
+    suspend fun recordCashOutDirect(
+        accountType: String,
+        amount: Double,
+        category: String,
+        note: String,
+        date: String,
+        accountName: String = ""
+    ) {
         if (amount <= 0) return
         val currentAccount = cashDao.getAccountDirect(accountType) ?: CashAccountEntity(
             accountType = accountType,
-            accountName = com.example.data.entity.CashAccountDefaults.getAccountName(accountType),
+            accountName = if (accountName.isNotBlank()) accountName else com.example.data.entity.CashAccountDefaults.getAccountName(accountType),
             saldo = 0.0
         )
         val newSaldo = currentAccount.saldo - amount
@@ -294,11 +308,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         )
     }
 
-    fun updateCashBalanceManual(accountType: String, newBalance: Double, note: String) {
+    fun updateCashBalanceManual(accountType: String, newBalance: Double, note: String, accountName: String = "") {
         viewModelScope.launch {
             val currentAccount = cashDao.getAccountDirect(accountType) ?: CashAccountEntity(
                 accountType = accountType,
-                accountName = com.example.data.entity.CashAccountDefaults.getAccountName(accountType),
+                accountName = if (accountName.isNotBlank()) accountName else com.example.data.entity.CashAccountDefaults.getAccountName(accountType),
                 saldo = 0.0
             )
             val diff = newBalance - currentAccount.saldo
@@ -317,26 +331,28 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    fun addIncome(accountType: String, amount: Double, category: String, note: String, date: String) {
+    fun addIncome(accountType: String, amount: Double, category: String, note: String, date: String, accountName: String = "") {
         viewModelScope.launch {
             recordCashInDirect(
                 accountType = accountType,
                 amount = amount,
                 category = category.ifBlank { "Kas Masuk / Pemasukan" },
                 note = note,
-                date = date
+                date = date,
+                accountName = accountName
             )
         }
     }
 
-    fun addExpense(accountType: String, amount: Double, category: String, note: String, date: String) {
+    fun addExpense(accountType: String, amount: Double, category: String, note: String, date: String, accountName: String = "") {
         viewModelScope.launch {
             recordCashOutDirect(
                 accountType = accountType,
                 amount = amount,
                 category = category.ifBlank { "Kas Keluar / Operasional" },
                 note = note,
-                date = date
+                date = date,
+                accountName = accountName
             )
         }
     }
@@ -344,8 +360,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun transferCash(fromAccount: String, toAccount: String, amount: Double, note: String, date: String) {
         if (amount <= 0 || fromAccount == toAccount) return
         viewModelScope.launch {
-            val fromName = com.example.data.entity.CashAccountDefaults.getAccountName(fromAccount)
-            val toName = com.example.data.entity.CashAccountDefaults.getAccountName(toAccount)
+            val fromAcc = cashDao.getAccountDirect(fromAccount)
+            val toAcc = cashDao.getAccountDirect(toAccount)
+            val fromName = fromAcc?.accountName ?: com.example.data.entity.CashAccountDefaults.getAccountName(fromAccount)
+            val toName = toAcc?.accountName ?: com.example.data.entity.CashAccountDefaults.getAccountName(toAccount)
+
             val noteOut = if (note.isBlank()) "Transfer ke $toName" else "Transfer ke $toName: $note"
             val noteIn = if (note.isBlank()) "Transfer dari $fromName" else "Transfer dari $fromName: $note"
             val dateFormatted = date.ifBlank { Formatters.getCurrentDateFormatted() }
@@ -355,14 +374,16 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 amount = amount,
                 category = "Transfer Antar Kas",
                 note = noteOut,
-                date = dateFormatted
+                date = dateFormatted,
+                accountName = fromName
             )
             recordCashInDirect(
                 accountType = toAccount,
                 amount = amount,
                 category = "Transfer Antar Kas",
                 note = noteIn,
-                date = dateFormatted
+                date = dateFormatted,
+                accountName = toName
             )
         }
     }
