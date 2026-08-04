@@ -47,7 +47,7 @@ interface ItemDao {
     @Update
     suspend fun updateItem(item: ItemEntity)
 
-    @Query("UPDATE items SET stok = stok + :delta, hargaModal = CASE WHEN :newHargaModal > 0 THEN :newHargaModal ELSE hargaModal END, updatedAt = :updatedAt WHERE id = :id")
+    @Query("UPDATE items SET stokTokoUtama = stokTokoUtama + :delta, stok = (stokTokoUtama + :delta) + stokTokoCabang, hargaModal = CASE WHEN :newHargaModal > 0 THEN :newHargaModal ELSE hargaModal END, updatedAt = :updatedAt WHERE id = :id")
     suspend fun updateStockAndPrice(id: Long, delta: Int, newHargaModal: Double, updatedAt: Long = System.currentTimeMillis())
 
     @Query("UPDATE items SET stokTokoUtama = :stokUtama, stokTokoCabang = :stokCabang, stok = :totalStok, updatedAt = :updatedAt WHERE id = :id")

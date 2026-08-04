@@ -532,15 +532,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0.0)
 
     // --- Barang List ---
-    @OptIn(ExperimentalCoroutinesApi::class)
-    val allItems: StateFlow<List<ItemEntity>> = _searchQuery
-        .flatMapLatest { query ->
-            if (query.isBlank()) {
-                itemDao.getAllItems()
-            } else {
-                itemDao.searchItems(query)
-            }
-        }
+    val allItems: StateFlow<List<ItemEntity>> = itemDao.getAllItems()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     fun addItem(
@@ -635,8 +627,17 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     ) {
         viewModelScope.launch {
             val oldItem = itemDao.getItemById(item.id) ?: return@launch
-            val sUtama = newStokUtama ?: oldItem.actualStokUtama
-            val sCabang = newStokCabang ?: oldItem.actualStokCabang
+            val (sUtama, sCabang) = if (newStokUtama != null || newStokCabang != null) {
+                (newStokUtama ?: oldItem.actualStokUtama) to (newStokCabang ?: oldItem.actualStokCabang)
+            } else if (oldItem.stokTokoCabang > 0) {
+                if (newStok >= oldItem.stokTokoCabang) {
+                    (newStok - oldItem.stokTokoCabang) to oldItem.stokTokoCabang
+                } else {
+                    0 to newStok
+                }
+            } else {
+                newStok to 0
+            }
             val totalS = sUtama + sCabang
             val stokDiff = totalS - oldItem.totalStokCombined
             
@@ -667,6 +668,74 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     )
                 )
             }
+        }
+    }
+
+    fun processReturnItemStock(
+        item: ItemEntity,
+        qtyReturn: Int,
+        alasan: String,
+        lokasiStok: String = "Gudang",
+        refundAmount: Double = 0.0,
+        targetAccountCode: String? = null,
+        onSuccess: (String) -> Unit = {}
+    ) {
+        if (qtyReturn <= 0) return
+        viewModelScope.launch {
+            val oldItem = itemDao.getItemById(item.id) ?: return@launch
+            val oldUtama = oldItem.actualStokUtama
+            val oldCabang = oldItem.actualStokCabang
+
+            var newUtama = oldUtama
+            var newCabang = oldCabang
+
+            if (lokasiStok.contains("Cabang", ignoreCase = true)) {
+                val actualQty = qtyReturn.coerceAtMost(oldCabang)
+                newCabang = oldCabang - actualQty
+            } else {
+                val actualQty = qtyReturn.coerceAtMost(oldUtama)
+                newUtama = oldUtama - actualQty
+            }
+
+            val totalS = (newUtama + newCabang).coerceAtLeast(0)
+            val updated = oldItem.copy(
+                stok = totalS,
+                stokTokoUtama = newUtama,
+                stokTokoCabang = newCabang,
+                updatedAt = System.currentTimeMillis()
+            )
+            itemDao.updateItem(updated)
+
+            stockHistoryDao.insertHistory(
+                StockHistoryEntity(
+                    itemId = item.id,
+                    kodeBarang = updated.kodeBarang,
+                    namaBarang = updated.namaBarang,
+                    jumlahPerubahan = -qtyReturn,
+                    stokAwal = oldItem.totalStokCombined,
+                    stokAkhir = totalS,
+                    jenis = "Return Stok",
+                    keterangan = "Return/Retur $qtyReturn unit (${alasan.ifBlank { "Retur Stok" }})",
+                    namaToko = lokasiStok
+                )
+            )
+
+            var extraInfo = ""
+            if (refundAmount > 0 && !targetAccountCode.isNullOrBlank()) {
+                val targetAccount = cashDao.getAccountDirect(targetAccountCode)
+                val accountName = targetAccount?.accountName ?: com.example.data.entity.CashAccountDefaults.getAccountName(targetAccountCode)
+                recordCashInDirect(
+                    accountType = targetAccountCode,
+                    amount = refundAmount,
+                    category = "Pengembalian Dana Retur Barang",
+                    note = "Retur $qtyReturn unit ${updated.namaBarang}: ${alasan.ifBlank { "Pengembalian Dana" }}",
+                    date = Formatters.getCurrentDateFormatted(),
+                    accountName = accountName
+                )
+                extraInfo = " & Dana ${Formatters.formatRupiah(refundAmount)} dicatat ke $accountName"
+            }
+
+            onSuccess("Return $qtyReturn unit '${updated.namaBarang}' berhasil diproses$extraInfo.")
         }
     }
 
@@ -974,13 +1043,27 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 cart.forEach { cartItem ->
                     val currentItem = itemDao.getItemById(cartItem.item.id)
                     if (currentItem != null) {
-                        val stokAwal = currentItem.stok
-                        val stokAkhir = stokAwal + cartItem.jumlahMasuk
-                        itemDao.updateStockAndPrice(
-                            id = cartItem.item.id,
-                            delta = cartItem.jumlahMasuk,
-                            newHargaModal = cartItem.hargaModal
+                        val stokAwal = currentItem.totalStokCombined
+                        val newUtama = currentItem.actualStokUtama + cartItem.jumlahMasuk
+                        val newCabang = currentItem.actualStokCabang
+                        val totalS = newUtama + newCabang
+                        itemDao.updateStoreStocks(
+                            id = currentItem.id,
+                            stokUtama = newUtama,
+                            stokCabang = newCabang,
+                            totalStok = totalS
                         )
+                        if (cartItem.hargaModal > 0) {
+                            itemDao.updateItem(
+                                currentItem.copy(
+                                    stokTokoUtama = newUtama,
+                                    stokTokoCabang = newCabang,
+                                    stok = totalS,
+                                    hargaModal = cartItem.hargaModal,
+                                    updatedAt = System.currentTimeMillis()
+                                )
+                            )
+                        }
                         stockHistoryDao.insertHistory(
                             StockHistoryEntity(
                                 itemId = cartItem.item.id,
@@ -988,7 +1071,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                                 namaBarang = cartItem.item.namaBarang,
                                 jumlahPerubahan = cartItem.jumlahMasuk,
                                 stokAwal = stokAwal,
-                                stokAkhir = stokAkhir,
+                                stokAkhir = totalS,
                                 jenis = "Barang Masuk",
                                 keterangan = "Faktur: ${fakturNumber.ifBlank { "Supplier $supplierName" }}"
                             )
@@ -1005,7 +1088,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                             accountType = "TUNAI",
                             amount = nominalTunaiSplit,
                             category = "Pembelian Barang (Tunai)",
-                            note = "Supplier: ${supplierName.trim()} | Faktur: ${fakturNumber.ifBlank { "-" }} (Bagian Tunai)",
+                            note = "Barang Masuk #${txId} - Supplier: ${supplierName.trim()} | Faktur: ${fakturNumber.ifBlank { "-" }} (Bagian Tunai)",
                             date = tanggal
                         )
                     }
@@ -1014,7 +1097,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                             accountType = bankAccount,
                             amount = nominalTransferSplit,
                             category = "Pembelian Barang (Transfer)",
-                            note = "Supplier: ${supplierName.trim()} | Faktur: ${fakturNumber.ifBlank { "-" }} (Bagian Transfer $bankName)",
+                            note = "Barang Masuk #${txId} - Supplier: ${supplierName.trim()} | Faktur: ${fakturNumber.ifBlank { "-" }} (Bagian Transfer $bankName)",
                             date = tanggal
                         )
                     }
@@ -1023,16 +1106,16 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         accountType = "TUNAI",
                         amount = totalNilai,
                         category = "Pembelian Barang (Tunai)",
-                        note = "Supplier: ${supplierName.trim()} | Faktur: ${fakturNumber.ifBlank { "-" }}",
+                        note = "Barang Masuk #${txId} - Supplier: ${supplierName.trim()} | Faktur: ${fakturNumber.ifBlank { "-" }}",
                         date = tanggal
                     )
-                } else if (statusPembayaran == "Transfer") {
+                } else if (statusPembayaran.startsWith("Transfer") || statusPembayaran == "Transfer") {
                     val accType = if (targetAccountCode.isNotBlank() && targetAccountCode != "TUNAI") targetAccountCode else "BANK"
                     recordCashOutDirect(
                         accountType = accType,
                         amount = totalNilai,
                         category = "Pembelian Barang (Transfer)",
-                        note = "Supplier: ${supplierName.trim()} | Faktur: ${fakturNumber.ifBlank { "-" }}",
+                        note = "Barang Masuk #${txId} - Supplier: ${supplierName.trim()} | Faktur: ${fakturNumber.ifBlank { "-" }}",
                         date = tanggal
                     )
                 } else if (statusPembayaran == "Hutang") {
@@ -1295,7 +1378,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                                 accountType = "TUNAI",
                                 amount = nominalTunaiSplit,
                                 category = "Penjualan $selectedStore (Tunai)",
-                                note = fullCatatan.ifBlank { "Penjualan $selectedStore Nota #${txId} (Bagian Tunai)" },
+                                note = "Nota #${txId} - $fullCatatan (Bagian Tunai)",
                                 date = tanggal
                             )
                         }
@@ -1304,7 +1387,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                                 accountType = bankAccount,
                                 amount = nominalTransferSplit,
                                 category = "Penjualan $selectedStore (Transfer)",
-                                note = fullCatatan.ifBlank { "Penjualan $selectedStore Nota #${txId} (Bagian Transfer $bankName)" },
+                                note = "Nota #${txId} - $fullCatatan (Bagian Transfer $bankName)",
                                 date = tanggal
                             )
                         }
@@ -1318,7 +1401,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                             accountType = targetAccount,
                             amount = finalMoney,
                             category = categoryLabel,
-                            note = fullCatatan.ifBlank { "Penjualan $selectedStore Nota #${txId}" },
+                            note = "Nota #${txId} - $fullCatatan",
                             date = tanggal
                         )
                     }
@@ -1635,11 +1718,62 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    fun updateCashMutation(
+        mutationId: Long,
+        newAccountType: String,
+        newNominal: Double,
+        newKategori: String,
+        newKeterangan: String,
+        newTanggal: String,
+        onSuccess: (() -> Unit)? = null
+    ) {
+        viewModelScope.launch {
+            val oldMutation = cashDao.getMutationById(mutationId) ?: return@launch
+
+            // 1. Revert old mutation effect on old account
+            val oldAccount = cashDao.getAccountDirect(oldMutation.accountType)
+            if (oldAccount != null) {
+                val oldRevertedSaldo = if (oldMutation.jenis == "MASUK") {
+                    oldAccount.saldo - oldMutation.nominal
+                } else {
+                    oldAccount.saldo + oldMutation.nominal
+                }
+                cashDao.insertOrUpdateAccount(oldAccount.copy(saldo = oldRevertedSaldo, lastUpdated = System.currentTimeMillis()))
+            }
+
+            // 2. Apply new mutation effect on new account
+            val targetAccount = cashDao.getAccountDirect(newAccountType) ?: com.example.data.entity.CashAccountEntity(
+                accountType = newAccountType,
+                accountName = com.example.data.entity.CashAccountDefaults.getAccountName(newAccountType),
+                saldo = 0.0
+            )
+            val newSaldo = if (oldMutation.jenis == "MASUK") {
+                targetAccount.saldo + newNominal
+            } else {
+                targetAccount.saldo - newNominal
+            }
+            cashDao.insertOrUpdateAccount(targetAccount.copy(saldo = newSaldo, lastUpdated = System.currentTimeMillis()))
+
+            // 3. Save updated mutation
+            val updatedMutation = oldMutation.copy(
+                accountType = newAccountType,
+                nominal = newNominal,
+                kategori = newKategori,
+                keterangan = newKeterangan,
+                tanggal = newTanggal,
+                saldoSesudah = newSaldo
+            )
+            cashDao.insertMutationDirect(updatedMutation)
+            onSuccess?.invoke()
+        }
+    }
+
     fun cancelSalesTransaction(transactionId: Long, onSuccess: (() -> Unit)? = null) {
         viewModelScope.launch {
             val transaction = salesDao.getTransactionById(transactionId) ?: return@launch
             val items = salesDao.getItemsForTransaction(transactionId)
 
+            // 1. Restore item stock
             items.forEach { salesItem ->
                 val product = itemDao.getItemById(salesItem.itemId)
                 if (product != null) {
@@ -1678,25 +1812,251 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 }
             }
 
-            val targetAccount = when {
-                transaction.metodePembayaran == "Tunai" -> "TUNAI"
-                transaction.metodePembayaran.startsWith("Transfer") -> "BANK"
-                transaction.metodePembayaran == "Piutang" -> null
-                else -> transaction.metodePembayaran.ifBlank { "TUNAI" }
+            // 2. Reverse all money into bank/cash
+            val allMutations = cashDao.getAllMutationsList()
+            val matchedMutations = allMutations.filter {
+                it.keterangan.contains("Nota #${transaction.id}") || it.keterangan.contains("Nota #${transactionId}")
             }
 
-            if (targetAccount != null) {
-                recordCashOutDirect(
-                    accountType = targetAccount,
-                    amount = transaction.totalUangPenjualan,
-                    category = "Pembatalan Penjualan",
-                    note = "Pembatalan Transaksi Penjualan #${transaction.id}",
-                    date = Formatters.getCurrentDateFormatted()
-                )
+            if (matchedMutations.isNotEmpty()) {
+                matchedMutations.forEach { mut ->
+                    val acc = cashDao.getAccountDirect(mut.accountType)
+                    if (acc != null) {
+                        val newSaldo = if (mut.jenis == "MASUK") {
+                            acc.saldo - mut.nominal
+                        } else {
+                            acc.saldo + mut.nominal
+                        }
+                        cashDao.insertOrUpdateAccount(acc.copy(saldo = newSaldo, lastUpdated = System.currentTimeMillis()))
+                    }
+                    cashDao.deleteMutation(mut.id)
+                }
+            } else {
+                // Fallback for legacy transactions
+                if (transaction.metodePembayaran != "Piutang") {
+                    val allAccounts = cashDao.getAllAccountsList()
+                    val targetAccType = when {
+                        transaction.metodePembayaran == "Tunai" -> "TUNAI"
+                        else -> {
+                            val matched = allAccounts.find { 
+                                it.accountType.equals(transaction.metodePembayaran, ignoreCase = true) || 
+                                it.accountName.equals(transaction.metodePembayaran, ignoreCase = true) 
+                            }
+                            matched?.accountType ?: "BANK"
+                        }
+                    }
+                    val acc = cashDao.getAccountDirect(targetAccType)
+                    if (acc != null) {
+                        val newSaldo = acc.saldo - transaction.totalUangPenjualan
+                        cashDao.insertOrUpdateAccount(acc.copy(saldo = newSaldo, lastUpdated = System.currentTimeMillis()))
+                    }
+                }
+            }
+
+            // 3. Remove customer receivables created for this transaction, if any
+            val receivables = customerReceivableDao.getAllReceivablesList()
+            val matchingReceivable = receivables.find { it.catatan.contains("Nota #${transaction.id}") }
+            if (matchingReceivable != null) {
+                customerReceivableDao.deletePaymentsByReceivable(matchingReceivable.id)
+                customerReceivableDao.deleteReceivable(matchingReceivable.id)
             }
 
             salesDao.deleteItemsForTransaction(transactionId)
             salesDao.deleteTransaction(transactionId)
+            onSuccess?.invoke()
+        }
+    }
+
+    fun updateSalesTransaction(
+        transactionId: Long,
+        newTanggal: String,
+        newTotalUangPenjualan: Double,
+        newMetodePembayaran: String,
+        newTargetAccountCode: String,
+        newCatatan: String,
+        newNamaPelanggan: String = "",
+        updatedItems: List<SalesItemEntity>? = null,
+        onSuccess: (() -> Unit)? = null
+    ) {
+        viewModelScope.launch {
+            val oldTx = salesDao.getTransactionById(transactionId) ?: return@launch
+            val oldItems = salesDao.getItemsForTransaction(transactionId)
+
+            // 1. Revert previous item stock changes (add back old sold quantities)
+            oldItems.forEach { oldItem ->
+                val product = itemDao.getItemById(oldItem.itemId)
+                if (product != null) {
+                    val isCabang = oldTx.namaToko.contains("Cabang", ignoreCase = true)
+                    val oldUtama = product.actualStokUtama
+                    val oldCabang = product.actualStokCabang
+                    var newUtama = oldUtama
+                    var newCabang = oldCabang
+                    if (isCabang) {
+                        newCabang += oldItem.jumlahTerjual
+                    } else {
+                        newUtama += oldItem.jumlahTerjual
+                    }
+                    val totalS = newUtama + newCabang
+                    itemDao.updateStoreStocks(
+                        id = product.id,
+                        stokUtama = newUtama,
+                        stokCabang = newCabang,
+                        totalStok = totalS
+                    )
+                }
+            }
+
+            // 2. Process new items (if provided) & deduct stock
+            val itemsToSave = updatedItems ?: oldItems
+            var calculatedTotalModal = 0.0
+
+            itemsToSave.forEach { newItem ->
+                val product = itemDao.getItemById(newItem.itemId)
+                if (product != null) {
+                    val isCabang = oldTx.namaToko.contains("Cabang", ignoreCase = true)
+                    val oldUtama = product.actualStokUtama
+                    val oldCabang = product.actualStokCabang
+                    var newUtama = oldUtama
+                    var newCabang = oldCabang
+                    if (isCabang) {
+                        newCabang = (newCabang - newItem.jumlahTerjual).coerceAtLeast(0)
+                    } else {
+                        newUtama = (newUtama - newItem.jumlahTerjual).coerceAtLeast(0)
+                    }
+                    val totalS = newUtama + newCabang
+                    itemDao.updateStoreStocks(
+                        id = product.id,
+                        stokUtama = newUtama,
+                        stokCabang = newCabang,
+                        totalStok = totalS
+                    )
+
+                    calculatedTotalModal += (product.hargaModal * newItem.jumlahTerjual)
+
+                    // Add stock history log for edit
+                    stockHistoryDao.insertHistory(
+                        com.example.data.entity.StockHistoryEntity(
+                            itemId = product.id,
+                            kodeBarang = product.kodeBarang,
+                            namaBarang = newItem.namaBarang.ifBlank { product.namaBarang },
+                            jumlahPerubahan = -newItem.jumlahTerjual,
+                            stokAwal = product.totalStokCombined,
+                            stokAkhir = totalS,
+                            jenis = "Edit Penjualan",
+                            keterangan = "Perubahan Transaksi Penjualan #${oldTx.id}",
+                            namaToko = oldTx.namaToko
+                        )
+                    )
+                } else {
+                    calculatedTotalModal += (newItem.hargaSatuan * 0.7 * newItem.jumlahTerjual)
+                }
+            }
+
+            // Update sales_items table
+            if (updatedItems != null) {
+                salesDao.deleteItemsForTransaction(transactionId)
+                salesDao.insertItems(updatedItems.map { 
+                    it.copy(
+                        id = 0,
+                        transactionId = transactionId,
+                        totalHarga = it.jumlahTerjual * it.hargaSatuan
+                    ) 
+                })
+            }
+
+            // 3. Revert previous cash mutation / bank balance impact
+            val allMutations = cashDao.getAllMutationsList()
+            val matchedMutations = allMutations.filter {
+                it.keterangan.contains("Nota #${oldTx.id}")
+            }
+
+            if (matchedMutations.isNotEmpty()) {
+                matchedMutations.forEach { mut ->
+                    val acc = cashDao.getAccountDirect(mut.accountType)
+                    if (acc != null) {
+                        val revertedSaldo = if (mut.jenis == "MASUK") acc.saldo - mut.nominal else acc.saldo + mut.nominal
+                        cashDao.insertOrUpdateAccount(acc.copy(saldo = revertedSaldo, lastUpdated = System.currentTimeMillis()))
+                    }
+                    cashDao.deleteMutation(mut.id)
+                }
+            } else if (oldTx.metodePembayaran != "Piutang") {
+                val oldTargetAcc = if (oldTx.metodePembayaran == "Tunai") "TUNAI" else "BANK"
+                val acc = cashDao.getAccountDirect(oldTargetAcc)
+                if (acc != null) {
+                    val revertedSaldo = acc.saldo - oldTx.totalUangPenjualan
+                    cashDao.insertOrUpdateAccount(acc.copy(saldo = revertedSaldo, lastUpdated = System.currentTimeMillis()))
+                }
+            }
+
+            // 4. Handle Customer Receivables (Piutang)
+            val receivables = customerReceivableDao.getAllReceivablesList()
+            val matchingReceivable = receivables.find { it.catatan.contains("Nota #${oldTx.id}") }
+            val isPiutang = newMetodePembayaran.contains("Piutang", ignoreCase = true)
+
+            if (isPiutang) {
+                val finalNamaPelanggan = newNamaPelanggan.trim().ifBlank {
+                    matchingReceivable?.namaPelanggan ?: "Pelanggan Nota #${oldTx.id}"
+                }
+                if (matchingReceivable != null) {
+                    val payments = customerReceivableDao.getPaymentsByReceivableList(matchingReceivable.id)
+                    val totalBayar = payments.sumOf { it.nominalBayar }
+                    val newSisa = (newTotalUangPenjualan - totalBayar).coerceAtLeast(0.0)
+                    val newStatus = if (newSisa <= 0) "Lunas" else "Belum Lunas"
+
+                    val updatedReceivable = matchingReceivable.copy(
+                        namaPelanggan = finalNamaPelanggan,
+                        nominalAwal = newTotalUangPenjualan,
+                        nominalSisa = newSisa,
+                        tanggal = newTanggal,
+                        catatan = "Penjualan ${oldTx.namaToko} Nota #${oldTx.id} (${newCatatan.ifBlank { "Diperbarui" }})",
+                        status = newStatus
+                    )
+                    customerReceivableDao.insertReceivable(updatedReceivable)
+                } else {
+                    val newReceivable = CustomerReceivableEntity(
+                        namaPelanggan = finalNamaPelanggan,
+                        nominalAwal = newTotalUangPenjualan,
+                        nominalSisa = newTotalUangPenjualan,
+                        tanggal = newTanggal,
+                        catatan = "Penjualan ${oldTx.namaToko} Nota #${oldTx.id} (${newCatatan.ifBlank { "Diperbarui" }})",
+                        status = if (newTotalUangPenjualan <= 0) "Lunas" else "Belum Lunas"
+                    )
+                    customerReceivableDao.insertReceivable(newReceivable)
+                }
+            } else {
+                // If previously was Piutang, remove it from receivables
+                if (matchingReceivable != null) {
+                    customerReceivableDao.deletePaymentsByReceivable(matchingReceivable.id)
+                    customerReceivableDao.deleteReceivable(matchingReceivable.id)
+                }
+
+                // Record cash / bank entry if not Piutang
+                val targetAccount = if (newMetodePembayaran == "Tunai") "TUNAI"
+                else if (newTargetAccountCode.isNotBlank()) newTargetAccountCode
+                else "BANK"
+
+                recordCashInDirect(
+                    accountType = targetAccount,
+                    amount = newTotalUangPenjualan,
+                    category = "Penjualan ${oldTx.namaToko} ($newMetodePembayaran)",
+                    note = "Nota #${oldTx.id} - ${newCatatan.ifBlank { "Penjualan ${oldTx.namaToko}" }}",
+                    date = newTanggal
+                )
+            }
+
+            // 5. Update SalesTransaction entity
+            val newTotalItemsCount = itemsToSave.sumOf { it.jumlahTerjual }
+            val newProfit = (newTotalUangPenjualan - calculatedTotalModal).coerceAtLeast(0.0)
+            val updatedTx = oldTx.copy(
+                tanggal = newTanggal,
+                totalUangPenjualan = newTotalUangPenjualan,
+                totalModal = calculatedTotalModal,
+                keuntungan = newProfit,
+                totalItemTerjual = newTotalItemsCount,
+                metodePembayaran = newMetodePembayaran,
+                catatan = newCatatan
+            )
+            salesDao.insertTransactionDirect(updatedTx)
             onSuccess?.invoke()
         }
     }
@@ -1706,6 +2066,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             val transaction = incomingDao.getTransactionById(transactionId) ?: return@launch
             val items = incomingDao.getItemsForTransaction(transactionId)
 
+            // 1. Revert item stock
             items.forEach { incItem ->
                 val product = itemDao.getItemById(incItem.itemId)
                 if (product != null) {
@@ -1737,24 +2098,233 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 }
             }
 
-            if (transaction.statusPembayaran != "Hutang") {
+            // 2. Reverse cash mutations & bank entries
+            val allMutations = cashDao.getAllMutationsList()
+            val matchedMutations = allMutations.filter {
+                it.keterangan.contains("Barang Masuk #${transaction.id}") || it.keterangan.contains("Nota Masuk #${transaction.id}")
+            }
+
+            if (matchedMutations.isNotEmpty()) {
+                matchedMutations.forEach { mut ->
+                    val acc = cashDao.getAccountDirect(mut.accountType)
+                    if (acc != null) {
+                        val newSaldo = if (mut.jenis == "KELUAR") {
+                            acc.saldo + mut.nominal
+                        } else {
+                            acc.saldo - mut.nominal
+                        }
+                        cashDao.insertOrUpdateAccount(acc.copy(saldo = newSaldo, lastUpdated = System.currentTimeMillis()))
+                    }
+                    cashDao.deleteMutation(mut.id)
+                }
+            } else if (transaction.statusPembayaran != "Hutang") {
                 val targetAccount = when {
                     transaction.statusPembayaran == "Tunai" -> "TUNAI"
-                    transaction.statusPembayaran == "Transfer" -> "BANK"
-                    else -> transaction.statusPembayaran.ifBlank { "TUNAI" }
+                    else -> {
+                        val allAccs = cashDao.getAllAccountsList()
+                        val matchedAcc = allAccs.find { it.accountType.equals(transaction.statusPembayaran, ignoreCase = true) || it.accountName.equals(transaction.statusPembayaran, ignoreCase = true) }
+                        matchedAcc?.accountType ?: "BANK"
+                    }
                 }
+                val currentAccount = cashDao.getAccountDirect(targetAccount)
+                if (currentAccount != null) {
+                    val newSaldo = currentAccount.saldo + transaction.totalNilai
+                    cashDao.insertOrUpdateAccount(currentAccount.copy(saldo = newSaldo, lastUpdated = System.currentTimeMillis()))
+                }
+            }
 
-                recordCashInDirect(
-                    accountType = targetAccount,
-                    amount = transaction.totalNilai,
-                    category = "Pembatalan Barang Masuk",
-                    note = "Refund Pembatalan Barang Masuk #${transaction.id} (${transaction.namaSupplier})",
-                    date = Formatters.getCurrentDateFormatted()
-                )
+            // 3. Remove supplier payables created for this transaction, if any
+            val payables = supplierPayableDao.getAllPayablesList()
+            val matchingPayable = payables.find { it.catatan.contains("Barang Masuk #${transaction.id}") || it.catatan.contains("Nota Masuk #${transaction.id}") }
+            if (matchingPayable != null) {
+                supplierPayableDao.deletePaymentsByPayable(matchingPayable.id)
+                supplierPayableDao.deletePayable(matchingPayable.id)
             }
 
             incomingDao.deleteItemsForTransaction(transactionId)
             incomingDao.deleteTransaction(transactionId)
+            onSuccess?.invoke()
+        }
+    }
+
+    fun updateIncomingTransaction(
+        transactionId: Long,
+        newSupplier: String,
+        newFakturNumber: String = "",
+        newTanggal: String,
+        newTotalNilai: Double,
+        newStatusPembayaran: String,
+        newTargetAccountCode: String,
+        newCatatan: String,
+        updatedItems: List<com.example.data.entity.IncomingItemEntity>? = null,
+        onSuccess: (() -> Unit)? = null
+    ) {
+        viewModelScope.launch {
+            val oldTx = incomingDao.getTransactionById(transactionId) ?: return@launch
+            val oldItems = incomingDao.getItemsForTransaction(transactionId)
+
+            // 1. Revert stock for old items
+            oldItems.forEach { oldItem ->
+                val product = itemDao.getItemById(oldItem.itemId)
+                if (product != null) {
+                    val oldUtama = product.actualStokUtama
+                    val oldCabang = product.actualStokCabang
+                    val newUtama = (oldUtama - oldItem.jumlahMasuk).coerceAtLeast(0)
+                    val totalS = newUtama + oldCabang
+                    itemDao.updateStoreStocks(
+                        id = product.id,
+                        stokUtama = newUtama,
+                        stokCabang = oldCabang,
+                        totalStok = totalS
+                    )
+                }
+            }
+
+            // 2. Apply stock for new/updated items and save item records
+            val itemsToSave = updatedItems ?: oldItems
+            itemsToSave.forEach { newItem ->
+                val product = itemDao.getItemById(newItem.itemId)
+                if (product != null) {
+                    val oldUtama = product.actualStokUtama
+                    val oldCabang = product.actualStokCabang
+                    val newUtama = oldUtama + newItem.jumlahMasuk
+                    val totalS = newUtama + oldCabang
+
+                    itemDao.updateStoreStocks(
+                        id = product.id,
+                        stokUtama = newUtama,
+                        stokCabang = oldCabang,
+                        totalStok = totalS
+                    )
+
+                    if (newItem.hargaModal > 0) {
+                        itemDao.updateItem(
+                            product.copy(
+                                stokTokoUtama = newUtama,
+                                stokTokoCabang = oldCabang,
+                                stok = totalS,
+                                hargaModal = newItem.hargaModal,
+                                updatedAt = System.currentTimeMillis()
+                            )
+                        )
+                    }
+
+                    stockHistoryDao.insertHistory(
+                        com.example.data.entity.StockHistoryEntity(
+                            itemId = product.id,
+                            kodeBarang = product.kodeBarang,
+                            namaBarang = newItem.namaBarang.ifBlank { product.namaBarang },
+                            jumlahPerubahan = newItem.jumlahMasuk,
+                            stokAwal = product.totalStokCombined,
+                            stokAkhir = totalS,
+                            jenis = "Edit Barang Masuk",
+                            keterangan = "Perubahan Transaksi Barang Masuk #${oldTx.id}",
+                            namaToko = "Toko Utama"
+                        )
+                    )
+                }
+            }
+
+            if (updatedItems != null) {
+                incomingDao.deleteItemsForTransaction(transactionId)
+                incomingDao.insertItems(updatedItems.map {
+                    it.copy(
+                        id = 0,
+                        transactionId = transactionId
+                    )
+                })
+            }
+
+            // 3. Revert previous cash mutation / bank balance impact
+            val allMutations = cashDao.getAllMutationsList()
+            val matchedMutations = allMutations.filter {
+                it.keterangan.contains("Barang Masuk #${oldTx.id}") || it.keterangan.contains("Nota Masuk #${oldTx.id}")
+            }
+
+            if (matchedMutations.isNotEmpty()) {
+                matchedMutations.forEach { mut ->
+                    val acc = cashDao.getAccountDirect(mut.accountType)
+                    if (acc != null) {
+                        val revertedSaldo = if (mut.jenis == "KELUAR") acc.saldo + mut.nominal else acc.saldo - mut.nominal
+                        cashDao.insertOrUpdateAccount(acc.copy(saldo = revertedSaldo, lastUpdated = System.currentTimeMillis()))
+                    }
+                    cashDao.deleteMutation(mut.id)
+                }
+            } else if (oldTx.statusPembayaran != "Hutang") {
+                val oldTargetAcc = if (oldTx.statusPembayaran == "Tunai") "TUNAI" else "BANK"
+                val acc = cashDao.getAccountDirect(oldTargetAcc)
+                if (acc != null) {
+                    val revertedSaldo = acc.saldo + oldTx.totalNilai
+                    cashDao.insertOrUpdateAccount(acc.copy(saldo = revertedSaldo, lastUpdated = System.currentTimeMillis()))
+                }
+            }
+
+            // 4. Update or Record Supplier Payables or Cash Deduction
+            val payables = supplierPayableDao.getAllPayablesList()
+            val matchingPayable = payables.find {
+                it.catatan.contains("Barang Masuk #${oldTx.id}") || it.catatan.contains("Nota Masuk #${oldTx.id}")
+            }
+            val isHutang = newStatusPembayaran.equals("Hutang", ignoreCase = true)
+
+            if (isHutang) {
+                val finalSupplier = newSupplier.trim().ifBlank { oldTx.namaSupplier }
+                if (matchingPayable != null) {
+                    val payments = supplierPayableDao.getPaymentsByPayableList(matchingPayable.id)
+                    val totalBayar = payments.sumOf { it.nominalBayar }
+                    val newSisa = (newTotalNilai - totalBayar).coerceAtLeast(0.0)
+                    val newStatus = if (newSisa <= 0) "Lunas" else "Belum Lunas"
+
+                    val updatedPayable = matchingPayable.copy(
+                        namaSupplier = finalSupplier,
+                        nominalAwal = newTotalNilai,
+                        nominalSisa = newSisa,
+                        tanggal = newTanggal,
+                        catatan = "Barang Masuk #${oldTx.id} - ${newCatatan.ifBlank { "Diperbarui" }}",
+                        status = newStatus
+                    )
+                    supplierPayableDao.insertPayable(updatedPayable)
+                } else {
+                    val newPayable = SupplierPayableEntity(
+                        namaSupplier = finalSupplier,
+                        nominalAwal = newTotalNilai,
+                        nominalSisa = newTotalNilai,
+                        tanggal = newTanggal,
+                        catatan = "Barang Masuk #${oldTx.id} - ${newCatatan.ifBlank { "Diperbarui" }}",
+                        status = if (newTotalNilai <= 0) "Lunas" else "Belum Lunas"
+                    )
+                    supplierPayableDao.insertPayable(newPayable)
+                }
+            } else {
+                if (matchingPayable != null) {
+                    supplierPayableDao.deletePaymentsByPayable(matchingPayable.id)
+                    supplierPayableDao.deletePayable(matchingPayable.id)
+                }
+
+                val targetAccount = if (newStatusPembayaran == "Tunai") "TUNAI"
+                else if (newTargetAccountCode.isNotBlank()) newTargetAccountCode
+                else "BANK"
+
+                recordCashOutDirect(
+                    accountType = targetAccount,
+                    amount = newTotalNilai,
+                    category = "Pembelian Barang Masuk",
+                    note = "Barang Masuk #${oldTx.id} (${newSupplier.ifBlank { "Supplier Umum" }}) - ${newCatatan.ifBlank { "Pembelian Barang" }}",
+                    date = newTanggal
+                )
+            }
+
+            // 5. Update IncomingTransaction entity
+            val newTotalItem = itemsToSave.sumOf { it.jumlahMasuk }
+            val updatedTx = oldTx.copy(
+                namaSupplier = newSupplier,
+                nomorFaktur = if (newFakturNumber.isNotBlank()) newFakturNumber else oldTx.nomorFaktur,
+                tanggal = newTanggal,
+                totalNilai = newTotalNilai,
+                totalItem = newTotalItem,
+                statusPembayaran = newStatusPembayaran,
+                catatan = newCatatan
+            )
+            incomingDao.insertTransactionDirect(updatedTx)
             onSuccess?.invoke()
         }
     }

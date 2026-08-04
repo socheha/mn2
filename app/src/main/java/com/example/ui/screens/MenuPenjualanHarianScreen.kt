@@ -30,7 +30,10 @@ import androidx.compose.material.icons.filled.CreditCard
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.DeleteSweep
 import androidx.compose.material.icons.filled.Description
+import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Info
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material.icons.filled.Money
 import androidx.compose.material.icons.filled.PointOfSale
 import androidx.compose.material.icons.filled.Print
@@ -61,6 +64,11 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material.icons.filled.Person
+import androidx.compose.material.icons.filled.Search
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -98,6 +106,7 @@ fun MenuPenjualanHarianScreen(
     val allSalesTransactions by viewModel.allSalesTransactions.collectAsStateWithLifecycle()
 
     var salesTransactionToCancel by remember { mutableStateOf<com.example.data.entity.SalesTransactionEntity?>(null) }
+    var salesTransactionToEdit by remember { mutableStateOf<com.example.data.entity.SalesTransactionEntity?>(null) }
 
     val registeredTransferAccounts = remember(allCashAccounts) {
         val nonCash = allCashAccounts.filter { it.accountType != "TUNAI" }.map { com.example.data.entity.AccountTypeInfo(it.accountType, it.accountName, "BANK") }
@@ -1528,11 +1537,24 @@ fun MenuPenjualanHarianScreen(
                                                 }
                                             }
 
-                                            TextButton(
-                                                onClick = { salesTransactionToCancel = tx },
-                                                colors = ButtonDefaults.textButtonColors(contentColor = Color(0xFFD32F2F))
-                                            ) {
-                                                Text("Batalkan", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                             Row(verticalAlignment = Alignment.CenterVertically) {
+                                                IconButton(
+                                                    onClick = { salesTransactionToEdit = tx },
+                                                    modifier = Modifier.size(28.dp)
+                                                ) {
+                                                    Icon(
+                                                        imageVector = Icons.Default.Edit,
+                                                        contentDescription = "Edit Penjualan",
+                                                        tint = MaterialTheme.colorScheme.primary,
+                                                        modifier = Modifier.size(16.dp)
+                                                    )
+                                                }
+                                                TextButton(
+                                                    onClick = { salesTransactionToCancel = tx },
+                                                    colors = ButtonDefaults.textButtonColors(contentColor = Color(0xFFD32F2F))
+                                                ) {
+                                                    Text("Batalkan", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                                }
                                             }
                                         }
                                     }
@@ -1543,6 +1565,518 @@ fun MenuPenjualanHarianScreen(
                 }
             }
         }
+    }
+
+    // Dialog Edit Transaksi Penjualan
+    salesTransactionToEdit?.let { tx ->
+        var totalText by remember(tx) { mutableStateOf(tx.totalUangPenjualan.toLong().toString()) }
+        var metodeText by remember(tx) { mutableStateOf(tx.metodePembayaran) }
+        var selectedAccountCode by remember(tx) { mutableStateOf("BCA") }
+        var catatanText by remember(tx) { mutableStateOf(tx.catatan) }
+        var tanggalText by remember(tx) { mutableStateOf(tx.tanggal) }
+        var namaPelangganText by remember(tx) { mutableStateOf("") }
+
+        var editableItems by remember(tx) { mutableStateOf<List<com.example.data.entity.SalesItemEntity>>(emptyList()) }
+        var isLoadingItems by remember(tx) { mutableStateOf(true) }
+        var showAddItemDialog by remember(tx) { mutableStateOf(false) }
+        var itemToChangeIndex by remember(tx) { mutableStateOf<Int?>(null) }
+
+        LaunchedEffect(tx.id) {
+            isLoadingItems = true
+            val items = viewModel.getTransactionItems(tx.id)
+            editableItems = items
+
+            val receivables = viewModel.allReceivables.value
+            val match = receivables.find { it.catatan.contains("Nota #${tx.id}") }
+            if (match != null) {
+                namaPelangganText = match.namaPelanggan
+                if (!metodeText.contains("Piutang", ignoreCase = true)) {
+                    metodeText = "Piutang"
+                }
+            }
+            isLoadingItems = false
+        }
+
+        // Sub-dialog to Pick or Add Item from Inventory
+        if (showAddItemDialog) {
+            var searchQuery by remember { mutableStateOf("") }
+            val filteredItems = remember(searchQuery, allItemsList) {
+                if (searchQuery.isBlank()) allItemsList
+                else com.example.util.ItemMatcher.searchItems(searchQuery, allItemsList)
+            }
+
+            AlertDialog(
+                onDismissRequest = { showAddItemDialog = false },
+                title = { Text("Pilih Barang dari Stok Toko", fontWeight = FontWeight.Bold, fontSize = 16.sp) },
+                text = {
+                    Column(modifier = Modifier.heightIn(max = 400.dp)) {
+                        OutlinedTextField(
+                            value = searchQuery,
+                            onValueChange = { searchQuery = it },
+                            placeholder = { Text("Cari nama/kode barang...", fontSize = 12.sp) },
+                            modifier = Modifier.fillMaxWidth(),
+                            singleLine = true,
+                            leadingIcon = { Icon(imageVector = Icons.Default.Search, contentDescription = null) }
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+
+                        if (filteredItems.isEmpty()) {
+                            Text("Tidak ada barang ditemukan.", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(16.dp))
+                        } else {
+                            LazyColumn(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                                items(filteredItems) { item ->
+                                    Card(
+                                        onClick = {
+                                            val initialPrice = item.hargaModal
+                                            val newItem = com.example.data.entity.SalesItemEntity(
+                                                transactionId = tx.id,
+                                                itemId = item.id,
+                                                kodeBarang = item.kodeBarang,
+                                                namaBarang = item.namaBarang,
+                                                jumlahTerjual = 1,
+                                                hargaSatuan = initialPrice,
+                                                totalHarga = initialPrice
+                                            )
+                                            editableItems = editableItems + newItem
+                                            showAddItemDialog = false
+                                            val calcTotal = editableItems.sumOf { it.jumlahTerjual * it.hargaSatuan }
+                                            totalText = calcTotal.toLong().toString()
+                                        },
+                                        modifier = Modifier.fillMaxWidth(),
+                                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
+                                    ) {
+                                        Row(
+                                            modifier = Modifier.padding(10.dp).fillMaxWidth(),
+                                            horizontalArrangement = Arrangement.SpaceBetween,
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            Column(modifier = Modifier.weight(1f)) {
+                                                Text(item.namaBarang, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                                                Text("Kode: ${item.kodeBarang} | Stok: ${item.totalStokCombined}", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                            }
+                                            Text(Formatters.formatRupiah(item.hargaModal), fontWeight = FontWeight.SemiBold, fontSize = 12.sp, color = MaterialTheme.colorScheme.primary)
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                },
+                confirmButton = {},
+                dismissButton = {
+                    TextButton(onClick = { showAddItemDialog = false }) {
+                        Text("Batal")
+                    }
+                }
+            )
+        }
+
+        // Sub-dialog to Change Existing Item Selection
+        itemToChangeIndex?.let { index ->
+            var searchQuery by remember { mutableStateOf("") }
+            val filteredItems = remember(searchQuery, allItemsList) {
+                if (searchQuery.isBlank()) allItemsList
+                else com.example.util.ItemMatcher.searchItems(searchQuery, allItemsList)
+            }
+
+            AlertDialog(
+                onDismissRequest = { itemToChangeIndex = null },
+                title = { Text("Ganti Barang Terjual", fontWeight = FontWeight.Bold, fontSize = 16.sp) },
+                text = {
+                    Column(modifier = Modifier.heightIn(max = 400.dp)) {
+                        OutlinedTextField(
+                            value = searchQuery,
+                            onValueChange = { searchQuery = it },
+                            placeholder = { Text("Cari barang pengganti...", fontSize = 12.sp) },
+                            modifier = Modifier.fillMaxWidth(),
+                            singleLine = true,
+                            leadingIcon = { Icon(imageVector = Icons.Default.Search, contentDescription = null) }
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+
+                        LazyColumn(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                            items(filteredItems) { item ->
+                                Card(
+                                    onClick = {
+                                        val old = editableItems[index]
+                                        val newPrice = item.hargaModal
+                                        val updated = old.copy(
+                                            itemId = item.id,
+                                            kodeBarang = item.kodeBarang,
+                                            namaBarang = item.namaBarang,
+                                            hargaSatuan = newPrice,
+                                            totalHarga = old.jumlahTerjual * newPrice
+                                        )
+                                        val list = editableItems.toMutableList()
+                                        list[index] = updated
+                                        editableItems = list
+                                        itemToChangeIndex = null
+                                        val calcTotal = list.sumOf { it.jumlahTerjual * it.hargaSatuan }
+                                        totalText = calcTotal.toLong().toString()
+                                    },
+                                    modifier = Modifier.fillMaxWidth(),
+                                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
+                                ) {
+                                    Row(
+                                        modifier = Modifier.padding(10.dp).fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Column(modifier = Modifier.weight(1f)) {
+                                            Text(item.namaBarang, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                                            Text("Kode: ${item.kodeBarang} | Stok: ${item.totalStokCombined}", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                        }
+                                        Text(Formatters.formatRupiah(item.hargaModal), fontWeight = FontWeight.SemiBold, fontSize = 12.sp, color = MaterialTheme.colorScheme.primary)
+                                    }
+                                }
+                            }
+                        }
+                    }
+                },
+                confirmButton = {},
+                dismissButton = {
+                    TextButton(onClick = { itemToChangeIndex = null }) {
+                        Text("Batal")
+                    }
+                }
+            )
+        }
+
+        AlertDialog(
+            onDismissRequest = { salesTransactionToEdit = null },
+            title = { Text("Edit Transaksi Penjualan #${tx.id}", fontWeight = FontWeight.Bold) },
+            text = {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(max = 500.dp)
+                        .verticalScroll(rememberScrollState()),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    // Header & Items Section
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text("Daftar Barang Terjual:", fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                        OutlinedButton(
+                            onClick = { showAddItemDialog = true },
+                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
+                            modifier = Modifier.height(32.dp)
+                        ) {
+                            Icon(imageVector = Icons.Default.Add, contentDescription = null, modifier = Modifier.size(14.dp))
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text("Tambah", fontSize = 11.sp)
+                        }
+                    }
+
+                    if (isLoadingItems) {
+                        Text("Memuat daftar barang...", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    } else if (editableItems.isEmpty()) {
+                        Surface(
+                            shape = RoundedCornerShape(8.dp),
+                            color = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.3f),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Text(
+                                "Belum ada barang di nota ini. Klik '+ Tambah' untuk memasukkan barang.",
+                                fontSize = 11.sp,
+                                modifier = Modifier.padding(10.dp),
+                                color = MaterialTheme.colorScheme.onErrorContainer
+                            )
+                        }
+                    } else {
+                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            editableItems.forEachIndexed { index, item ->
+                                Surface(
+                                    shape = RoundedCornerShape(8.dp),
+                                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    Column(modifier = Modifier.padding(8.dp)) {
+                                        Row(
+                                            modifier = Modifier.fillMaxWidth(),
+                                            horizontalArrangement = Arrangement.SpaceBetween,
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            Row(
+                                                modifier = Modifier.weight(1f),
+                                                verticalAlignment = Alignment.CenterVertically
+                                            ) {
+                                                Text(
+                                                    text = "${index + 1}. ${item.namaBarang}",
+                                                    fontWeight = FontWeight.Bold,
+                                                    fontSize = 12.sp,
+                                                    modifier = Modifier.weight(1f)
+                                                )
+                                                IconButton(
+                                                    onClick = { itemToChangeIndex = index },
+                                                    modifier = Modifier.size(24.dp)
+                                                ) {
+                                                    Icon(
+                                                        imageVector = Icons.Default.Edit,
+                                                        contentDescription = "Ganti Barang",
+                                                        tint = MaterialTheme.colorScheme.primary,
+                                                        modifier = Modifier.size(14.dp)
+                                                    )
+                                                }
+                                            }
+                                            IconButton(
+                                                onClick = {
+                                                    val list = editableItems.toMutableList()
+                                                    list.removeAt(index)
+                                                    editableItems = list
+                                                    val calcTotal = list.sumOf { it.jumlahTerjual * it.hargaSatuan }
+                                                    totalText = calcTotal.toLong().toString()
+                                                },
+                                                modifier = Modifier.size(24.dp)
+                                            ) {
+                                                Icon(
+                                                    imageVector = Icons.Default.Delete,
+                                                    contentDescription = "Hapus Barang",
+                                                    tint = MaterialTheme.colorScheme.error,
+                                                    modifier = Modifier.size(14.dp)
+                                                )
+                                            }
+                                        }
+
+                                        Spacer(modifier = Modifier.height(4.dp))
+
+                                        Row(
+                                            modifier = Modifier.fillMaxWidth(),
+                                            horizontalArrangement = Arrangement.SpaceBetween,
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            // Quantity Selector
+                                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                                IconButton(
+                                                    onClick = {
+                                                        if (item.jumlahTerjual > 1) {
+                                                            val updated = item.copy(
+                                                                jumlahTerjual = item.jumlahTerjual - 1,
+                                                                totalHarga = (item.jumlahTerjual - 1) * item.hargaSatuan
+                                                            )
+                                                            val list = editableItems.toMutableList()
+                                                            list[index] = updated
+                                                            editableItems = list
+                                                            val calcTotal = list.sumOf { it.jumlahTerjual * it.hargaSatuan }
+                                                            totalText = calcTotal.toLong().toString()
+                                                        }
+                                                    },
+                                                    modifier = Modifier.size(24.dp)
+                                                ) {
+                                                    Icon(imageVector = Icons.Default.Remove, contentDescription = "Kurang", modifier = Modifier.size(14.dp))
+                                                }
+                                                Text(
+                                                    text = "${item.jumlahTerjual}",
+                                                    fontWeight = FontWeight.Bold,
+                                                    fontSize = 12.sp,
+                                                    modifier = Modifier.padding(horizontal = 6.dp)
+                                                )
+                                                IconButton(
+                                                    onClick = {
+                                                        val updated = item.copy(
+                                                            jumlahTerjual = item.jumlahTerjual + 1,
+                                                            totalHarga = (item.jumlahTerjual + 1) * item.hargaSatuan
+                                                        )
+                                                        val list = editableItems.toMutableList()
+                                                        list[index] = updated
+                                                        editableItems = list
+                                                        val calcTotal = list.sumOf { it.jumlahTerjual * it.hargaSatuan }
+                                                        totalText = calcTotal.toLong().toString()
+                                                    },
+                                                    modifier = Modifier.size(24.dp)
+                                                ) {
+                                                    Icon(imageVector = Icons.Default.Add, contentDescription = "Tambah", modifier = Modifier.size(14.dp))
+                                                }
+                                            }
+
+                                            // Price input
+                                            var priceInput by remember(item.hargaSatuan) { mutableStateOf(item.hargaSatuan.toLong().toString()) }
+                                            OutlinedTextField(
+                                                value = priceInput,
+                                                onValueChange = { str ->
+                                                    priceInput = str.filter { c -> c.isDigit() }
+                                                    val newPrice = priceInput.toDoubleOrNull() ?: 0.0
+                                                    val updated = item.copy(
+                                                        hargaSatuan = newPrice,
+                                                        totalHarga = item.jumlahTerjual * newPrice
+                                                    )
+                                                    val list = editableItems.toMutableList()
+                                                    list[index] = updated
+                                                    editableItems = list
+                                                    val calcTotal = list.sumOf { it.jumlahTerjual * it.hargaSatuan }
+                                                    totalText = calcTotal.toLong().toString()
+                                                },
+                                                label = { Text("Harga Satuan", fontSize = 10.sp) },
+                                                modifier = Modifier.width(110.dp),
+                                                singleLine = true,
+                                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number)
+                                            )
+
+                                            // Item Subtotal
+                                            Text(
+                                                text = Formatters.formatRupiah(item.jumlahTerjual * item.hargaSatuan),
+                                                fontWeight = FontWeight.Bold,
+                                                fontSize = 12.sp,
+                                                color = MaterialTheme.colorScheme.primary
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    val calcTotal = editableItems.sumOf { it.jumlahTerjual * it.hargaSatuan }
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text("Hitung Otomatis Total:", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        TextButton(
+                            onClick = { totalText = calcTotal.toLong().toString() },
+                            contentPadding = PaddingValues(horizontal = 4.dp, vertical = 0.dp)
+                        ) {
+                            Text("Pakai Total Barang (${Formatters.formatRupiah(calcTotal)})", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                        }
+                    }
+
+                    OutlinedTextField(
+                        value = totalText,
+                        onValueChange = { totalText = it.filter { c -> c.isDigit() } },
+                        label = { Text("Total Nilai Penjualan (Rp)") },
+                        modifier = Modifier.fillMaxWidth(),
+                        singleLine = true,
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number)
+                    )
+
+                    Text("Metode Pembayaran:", fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        listOf("Tunai", "Transfer", "Piutang").forEach { m ->
+                            FilterChip(
+                                selected = metodeText.contains(m, ignoreCase = true),
+                                onClick = { metodeText = m },
+                                label = { Text(m, fontSize = 11.sp) }
+                            )
+                        }
+                    }
+
+                    if (metodeText.contains("Transfer", ignoreCase = true)) {
+                        Text("Pilih Bank / E-Wallet Tujuan:", fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                        Row(
+                            modifier = Modifier.horizontalScroll(rememberScrollState()),
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            registeredTransferAccounts.forEach { acc ->
+                                FilterChip(
+                                    selected = selectedAccountCode == acc.type,
+                                    onClick = { selectedAccountCode = acc.type },
+                                    label = { Text(acc.name, fontSize = 11.sp) }
+                                )
+                            }
+                        }
+                    }
+
+                    if (metodeText.contains("Piutang", ignoreCase = true)) {
+                        OutlinedTextField(
+                            value = namaPelangganText,
+                            onValueChange = { namaPelangganText = it },
+                            label = { Text("Nama yang Berhutang (Pelanggan)*", fontWeight = FontWeight.SemiBold) },
+                            placeholder = { Text("Ketik nama pembeli/pelanggan yang berhutang") },
+                            leadingIcon = { Icon(imageVector = Icons.Default.Person, contentDescription = null) },
+                            modifier = Modifier.fillMaxWidth(),
+                            singleLine = true
+                        )
+
+                        Surface(
+                            shape = RoundedCornerShape(8.dp),
+                            color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.4f),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(10.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Info,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier.size(16.dp)
+                                )
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text(
+                                    text = if (namaPelangganText.isNotBlank()) "Catatan piutang atas nama '${namaPelangganText.trim()}' akan dimasukkan/diperbarui di Daftar Piutang Pelanggan."
+                                    else "Mohon ketik nama pelanggan yang berhutang.",
+                                    fontSize = 11.sp,
+                                    color = MaterialTheme.colorScheme.onPrimaryContainer
+                                )
+                            }
+                        }
+                    }
+
+                    OutlinedTextField(
+                        value = catatanText,
+                        onValueChange = { catatanText = it },
+                        label = { Text("Catatan Transaksi") },
+                        modifier = Modifier.fillMaxWidth(),
+                        singleLine = true
+                    )
+
+                    OutlinedTextField(
+                        value = tanggalText,
+                        onValueChange = { tanggalText = it },
+                        label = { Text("Tanggal (Format: TTTT-BB-HH)") },
+                        modifier = Modifier.fillMaxWidth(),
+                        singleLine = true
+                    )
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        val tot = totalText.toDoubleOrNull() ?: 0.0
+                        if (tot <= 0) {
+                            Toast.makeText(context, "Total nilai penjualan tidak valid", Toast.LENGTH_SHORT).show()
+                            return@Button
+                        }
+                        if (metodeText.contains("Piutang", ignoreCase = true) && namaPelangganText.isBlank()) {
+                            Toast.makeText(context, "Mohon masukkan nama pelanggan yang berhutang!", Toast.LENGTH_SHORT).show()
+                            return@Button
+                        }
+                        if (editableItems.isEmpty()) {
+                            Toast.makeText(context, "Daftar barang terjual tidak boleh kosong!", Toast.LENGTH_SHORT).show()
+                            return@Button
+                        }
+
+                        viewModel.updateSalesTransaction(
+                            transactionId = tx.id,
+                            newTanggal = tanggalText.ifBlank { tx.tanggal },
+                            newTotalUangPenjualan = tot,
+                            newMetodePembayaran = metodeText,
+                            newTargetAccountCode = selectedAccountCode,
+                            newCatatan = catatanText,
+                            newNamaPelanggan = namaPelangganText,
+                            updatedItems = editableItems,
+                            onSuccess = {
+                                salesTransactionToEdit = null
+                                Toast.makeText(context, "Nota Penjualan #${tx.id} berhasil diperbarui!", Toast.LENGTH_SHORT).show()
+                            }
+                        )
+                    }
+                ) {
+                    Text("Simpan Perubahan", fontWeight = FontWeight.Bold)
+                }
+            },
+            dismissButton = {
+                OutlinedButton(onClick = { salesTransactionToEdit = null }) {
+                    Text("Batal")
+                }
+            }
+        )
     }
 
     // Confirmation Dialog for Sales Transaction Cancellation

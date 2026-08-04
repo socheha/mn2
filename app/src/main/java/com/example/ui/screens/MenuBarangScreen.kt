@@ -21,6 +21,8 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.AssignmentReturn
+import androidx.compose.material3.Checkbox
 import androidx.compose.material.icons.filled.CameraAlt
 import com.example.ui.components.ScanReceiptDialog
 import androidx.compose.material.icons.filled.Close
@@ -48,6 +50,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -85,7 +88,38 @@ fun MenuBarangScreen(
 ) {
     val context = LocalContext.current
     val itemsList by viewModel.allItems.collectAsStateWithLifecycle()
-    val searchQuery by viewModel.searchQuery.collectAsStateWithLifecycle()
+    var searchQuery by rememberSaveable { mutableStateOf("") }
+    val allCashAccounts by viewModel.allCashAccounts.collectAsStateWithLifecycle()
+
+    val filteredItemsList = remember(itemsList, searchQuery) {
+        if (searchQuery.isBlank()) itemsList
+        else com.example.util.ItemMatcher.searchItems(searchQuery, itemsList)
+    }
+
+    val availableAccounts = remember(allCashAccounts) {
+        val combined = mutableListOf<com.example.data.entity.AccountTypeInfo>()
+
+        val tunaiInDb = allCashAccounts.find { it.accountType == "TUNAI" }
+        combined.add(
+            com.example.data.entity.AccountTypeInfo(
+                type = "TUNAI",
+                name = tunaiInDb?.accountName ?: "Kas Tunai Toko",
+                category = "TUNAI"
+            )
+        )
+
+        allCashAccounts.filter { it.accountType != "TUNAI" }.forEach { acc ->
+            combined.add(
+                com.example.data.entity.AccountTypeInfo(
+                    type = acc.accountType,
+                    name = acc.accountName,
+                    category = com.example.data.entity.CashAccountDefaults.getAccountCategory(acc.accountType)
+                )
+            )
+        }
+
+        combined
+    }
 
     var showAddDialog by remember { mutableStateOf(false) }
     var showExcelImportDialog by remember { mutableStateOf(false) }
@@ -93,6 +127,7 @@ fun MenuBarangScreen(
     var itemToEdit by remember { mutableStateOf<ItemEntity?>(null) }
     var itemToDelete by remember { mutableStateOf<ItemEntity?>(null) }
     var itemForHistory by remember { mutableStateOf<ItemEntity?>(null) }
+    var itemToReturn by remember { mutableStateOf<ItemEntity?>(null) }
 
     Scaffold(
         modifier = Modifier.testTag("menu_barang_screen"),
@@ -183,13 +218,13 @@ fun MenuBarangScreen(
                         Spacer(modifier = Modifier.height(8.dp))
                         OutlinedTextField(
                             value = searchQuery,
-                            onValueChange = { viewModel.updateSearchQuery(it) },
+                            onValueChange = { searchQuery = it },
                             modifier = Modifier.fillMaxWidth(),
                             placeholder = { Text("Cari barang (ketik misal: 609, 663, router)...", fontSize = 13.sp) },
                             leadingIcon = { Icon(imageVector = Icons.Default.Search, contentDescription = null) },
                             trailingIcon = {
                                 if (searchQuery.isNotEmpty()) {
-                                    IconButton(onClick = { viewModel.updateSearchQuery("") }) {
+                                    IconButton(onClick = { searchQuery = "" }) {
                                         Icon(imageVector = Icons.Default.Close, contentDescription = null)
                                     }
                                 }
@@ -297,7 +332,7 @@ fun MenuBarangScreen(
             }
 
             // List of Items
-            if (itemsList.isEmpty()) {
+            if (filteredItemsList.isEmpty()) {
                 item {
                     Box(
                         modifier = Modifier
@@ -314,12 +349,13 @@ fun MenuBarangScreen(
                     }
                 }
             } else {
-                items(itemsList, key = { it.id }) { item ->
+                items(filteredItemsList, key = { it.id }) { item ->
                     Box(modifier = Modifier.padding(horizontal = 16.dp, vertical = 5.dp)) {
                         ItemCard(
                             item = item,
                             onEdit = { itemToEdit = item },
                             onDelete = { itemToDelete = item },
+                            onReturn = { itemToReturn = item },
                             onViewHistory = { itemForHistory = item }
                         )
                     }
@@ -441,6 +477,17 @@ fun MenuBarangScreen(
             onDismiss = { itemForHistory = null }
         )
     }
+
+    // Return Stock Dialog
+    itemToReturn?.let { item ->
+        ReturnStockDialog(
+            item = item,
+            viewModel = viewModel,
+            availableAccounts = availableAccounts,
+            allAccounts = allCashAccounts,
+            onDismiss = { itemToReturn = null }
+        )
+    }
 }
 
 @Composable
@@ -448,6 +495,7 @@ fun ItemCard(
     item: ItemEntity,
     onEdit: () -> Unit,
     onDelete: () -> Unit,
+    onReturn: () -> Unit,
     onViewHistory: () -> Unit
 ) {
     Card(
@@ -581,6 +629,9 @@ fun ItemCard(
                 Row {
                     IconButton(onClick = onViewHistory, modifier = Modifier.size(32.dp)) {
                         Icon(imageVector = Icons.Default.History, contentDescription = "Riwayat", tint = MaterialTheme.colorScheme.primary)
+                    }
+                    IconButton(onClick = onReturn, modifier = Modifier.size(32.dp)) {
+                        Icon(imageVector = Icons.Default.AssignmentReturn, contentDescription = "Return Stok", tint = Color(0xFFE65100))
                     }
                     IconButton(onClick = onEdit, modifier = Modifier.size(32.dp)) {
                         Icon(imageVector = Icons.Default.Edit, contentDescription = "Edit", tint = MaterialTheme.colorScheme.primary)
@@ -1110,6 +1161,245 @@ fun ExcelImportDialog(
                 modifier = Modifier.testTag("btn_konfirmasi_impor_excel")
             ) {
                 Text(if (isImporting) "Memproses..." else "Impor ${parsedItems.size} Barang", fontWeight = FontWeight.Bold)
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Batal")
+            }
+        }
+    )
+}
+
+@Composable
+fun ReturnStockDialog(
+    item: ItemEntity,
+    viewModel: MainViewModel,
+    availableAccounts: List<com.example.data.entity.AccountTypeInfo>,
+    allAccounts: List<com.example.data.entity.CashAccountEntity>,
+    onDismiss: () -> Unit
+) {
+    val context = LocalContext.current
+    var qtyStr by remember { mutableStateOf("1") }
+    var alasan by remember { mutableStateOf("") }
+    
+    val hasCabangStock = item.actualStokCabang > 0
+    var selectedLokasi by remember { mutableStateOf(if (item.actualStokUtama > 0) "Gudang" else "Toko Cabang") }
+
+    var isRefundEnabled by remember { mutableStateOf(false) }
+    val initialRefund = remember(item.hargaModal) {
+        if (item.hargaModal > 0) item.hargaModal.toLong().toString() else "0"
+    }
+    var refundAmountStr by remember { mutableStateOf(initialRefund) }
+    var targetAccountCode by remember { mutableStateOf("TUNAI") }
+
+    val qtyInt = qtyStr.toIntOrNull() ?: 0
+    val maxAvailable = if (selectedLokasi == "Toko Cabang") item.actualStokCabang else item.actualStokUtama
+    val isQtyExceed = qtyInt > maxAvailable
+
+    androidx.compose.runtime.LaunchedEffect(qtyInt) {
+        if (qtyInt > 0 && item.hargaModal > 0) {
+            refundAmountStr = (qtyInt * item.hargaModal).toLong().toString()
+        }
+    }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(
+                    imageVector = Icons.Default.AssignmentReturn,
+                    contentDescription = null,
+                    tint = Color(0xFFE65100),
+                    modifier = Modifier.padding(end = 8.dp)
+                )
+                Text(
+                    text = "Return / Retur Stok Barang",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold
+                )
+            }
+        },
+        text = {
+            Column(
+                verticalArrangement = Arrangement.spacedBy(10.dp),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Surface(
+                    color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.35f),
+                    shape = RoundedCornerShape(10.dp),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Column(modifier = Modifier.padding(12.dp)) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            if (item.kodeBarang.isNotBlank()) {
+                                Surface(
+                                    shape = RoundedCornerShape(4.dp),
+                                    color = MaterialTheme.colorScheme.secondaryContainer,
+                                    modifier = Modifier.padding(end = 6.dp)
+                                ) {
+                                    Text(
+                                        text = item.kodeBarang,
+                                        style = MaterialTheme.typography.labelSmall,
+                                        fontWeight = FontWeight.Bold,
+                                        color = MaterialTheme.colorScheme.onSecondaryContainer,
+                                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                    )
+                                }
+                            }
+                            Text(
+                                text = item.namaBarang,
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 14.sp
+                            )
+                        }
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text(
+                            text = "Stok Gudang: ${item.actualStokUtama} unit | Stok Toko: ${item.actualStokCabang} unit (Total: ${item.totalStokCombined})",
+                            fontSize = 11.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+
+                if (hasCabangStock && item.actualStokUtama > 0) {
+                    Text(text = "Pilih Lokasi Stok yang Di-return:", fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        FilterChip(
+                            selected = selectedLokasi == "Gudang",
+                            onClick = { selectedLokasi = "Gudang" },
+                            label = { Text("Gudang (${item.actualStokUtama})", fontSize = 11.sp) }
+                        )
+                        FilterChip(
+                            selected = selectedLokasi == "Toko Cabang",
+                            onClick = { selectedLokasi = "Toko Cabang" },
+                            label = { Text("Toko Cabang (${item.actualStokCabang})", fontSize = 11.sp) }
+                        )
+                    }
+                }
+
+                Text(text = "Jumlah Barang yang Di-return (Unit):", fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                OutlinedTextField(
+                    value = qtyStr,
+                    onValueChange = { input ->
+                        qtyStr = input.filter { it.isDigit() }
+                    },
+                    label = { Text("Jumlah Return (Unit)") },
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                    singleLine = true,
+                    isError = isQtyExceed || qtyInt <= 0,
+                    modifier = Modifier.fillMaxWidth().testTag("input_qty_return")
+                )
+
+                if (isQtyExceed) {
+                    Text(
+                        text = "⚠️ Jumlah melebihi stok tersedia di $selectedLokasi (Maksimal: $maxAvailable unit)!",
+                        fontSize = 11.sp,
+                        color = MaterialTheme.colorScheme.error,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                }
+
+                OutlinedTextField(
+                    value = alasan,
+                    onValueChange = { alasan = it },
+                    label = { Text("Alasan / Keterangan Return") },
+                    placeholder = { Text("misal: Barang Rusak / Cacat Pabrik / Retur Supplier") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth().testTag("input_alasan_return")
+                )
+
+                Spacer(modifier = Modifier.height(2.dp))
+
+                Surface(
+                    shape = RoundedCornerShape(8.dp),
+                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Column(modifier = Modifier.padding(10.dp)) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            modifier = Modifier.fillMaxWidth().clickable { isRefundEnabled = !isRefundEnabled }
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Checkbox(
+                                    checked = isRefundEnabled,
+                                    onCheckedChange = { isRefundEnabled = it }
+                                )
+                                Text(
+                                    text = "Ada Pengembalian Dana (Uang Masuk)?",
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
+                        }
+
+                        if (isRefundEnabled) {
+                            Spacer(modifier = Modifier.height(6.dp))
+                            OutlinedTextField(
+                                value = refundAmountStr,
+                                onValueChange = { input ->
+                                    refundAmountStr = input.filter { it.isDigit() }
+                                },
+                                label = { Text("Nominal Uang Kembali (Rp)") },
+                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                                singleLine = true,
+                                modifier = Modifier.fillMaxWidth().testTag("input_nominal_refund")
+                            )
+
+                            Spacer(modifier = Modifier.height(8.dp))
+                            Text(
+                                text = "Tujuan Kas / Bank Penerima Pengembalian:",
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+
+                            androidx.compose.foundation.lazy.LazyRow(
+                                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                modifier = Modifier.padding(top = 4.dp)
+                            ) {
+                                items(availableAccounts, key = { it.type }) { acc ->
+                                    val accSaldo = allAccounts.find { it.accountType == acc.type }?.saldo ?: 0.0
+                                    FilterChip(
+                                        selected = targetAccountCode == acc.type,
+                                        onClick = { targetAccountCode = acc.type },
+                                        label = { Text("${acc.name} (${Formatters.formatRupiah(accSaldo)})", fontSize = 11.sp) },
+                                        colors = FilterChipDefaults.filterChipColors(
+                                            selectedContainerColor = if (acc.type == "TUNAI") Color(0xFFE8F5E9) else Color(0xFFE3F2FD),
+                                            selectedLabelColor = if (acc.type == "TUNAI") Color(0xFF2E7D32) else Color(0xFF1565C0)
+                                        )
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = {
+                    val refundVal = if (isRefundEnabled) (refundAmountStr.toDoubleOrNull() ?: 0.0) else 0.0
+                    viewModel.processReturnItemStock(
+                        item = item,
+                        qtyReturn = qtyInt,
+                        alasan = alasan.ifBlank { "Return Stok Barang" },
+                        lokasiStok = selectedLokasi,
+                        refundAmount = refundVal,
+                        targetAccountCode = if (isRefundEnabled) targetAccountCode else null,
+                        onSuccess = { msg ->
+                            Toast.makeText(context, msg, Toast.LENGTH_LONG).show()
+                            onDismiss()
+                        }
+                    )
+                },
+                enabled = qtyInt > 0 && !isQtyExceed,
+                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFE65100)),
+                modifier = Modifier.testTag("btn_konfirmasi_return")
+            ) {
+                Text("Proses Return Stok", color = Color.White)
             }
         },
         dismissButton = {

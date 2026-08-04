@@ -1,6 +1,9 @@
 package com.example.ui.screens
 
+import android.widget.Toast
 import androidx.compose.foundation.background
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -28,6 +31,7 @@ import androidx.compose.material.icons.filled.Calculate
 import androidx.compose.material.icons.filled.DeleteForever
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.FilterList
+import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Money
 import androidx.compose.material.icons.filled.MoneyOff
 import androidx.compose.material.icons.filled.Payments
@@ -85,7 +89,6 @@ fun MenuKasScreen(
     val mutations by viewModel.allCashMutations.collectAsStateWithLifecycle()
 
     val availableAccounts = remember(allAccounts) {
-        val registeredTypes = allAccounts.map { it.accountType }.toSet()
         val combined = mutableListOf<com.example.data.entity.AccountTypeInfo>()
 
         val tunaiInDb = allAccounts.find { it.accountType == "TUNAI" }
@@ -107,12 +110,6 @@ fun MenuKasScreen(
             )
         }
 
-        com.example.data.entity.CashAccountDefaults.ALL_DEFAULT_ACCOUNTS.forEach { defaultAcc ->
-            if (defaultAcc.type !in registeredTypes && defaultAcc.type != "TUNAI") {
-                combined.add(defaultAcc)
-            }
-        }
-
         combined
     }
 
@@ -124,17 +121,60 @@ fun MenuKasScreen(
     var targetAccountForEdit by remember { mutableStateOf("TUNAI") }
     var accountToDelete by remember { mutableStateOf<com.example.data.entity.CashAccountEntity?>(null) }
     var mutationToCancel by remember { mutableStateOf<com.example.data.entity.CashMutationEntity?>(null) }
+    var mutationToEdit by remember { mutableStateOf<com.example.data.entity.CashMutationEntity?>(null) }
 
-    var selectedFilterAccount by remember { mutableStateOf("ALL") } // "ALL", "TUNAI", "NON_TUNAI"
+    var selectedFilterAccount by remember { mutableStateOf("ALL") }
+
+    val filterOptions = remember(allAccounts, mutations) {
+        val list = mutableListOf<Pair<String, String>>()
+        list.add("ALL" to "Semua")
+
+        val tunaiAcc = allAccounts.find { it.accountType == "TUNAI" }
+        list.add("TUNAI" to (tunaiAcc?.accountName ?: "Kas Tunai Toko"))
+
+        allAccounts.filter { it.accountType != "TUNAI" }.forEach { acc ->
+            val displayName = acc.accountName.ifBlank { com.example.data.entity.CashAccountDefaults.getAccountName(acc.accountType) }
+            list.add(acc.accountType to displayName)
+        }
+
+        if (allAccounts.count { it.accountType != "TUNAI" } > 1) {
+            list.add("NON_TUNAI" to "Semua Bank/E-Wallet")
+        }
+
+        val registeredTypes = list.map { it.first }.toSet()
+        mutations.map { it.accountType }.distinct().forEach { type ->
+            if (type !in registeredTypes && type.isNotBlank()) {
+                list.add(type to com.example.data.entity.CashAccountDefaults.getAccountName(type))
+            }
+        }
+
+        list
+    }
 
     val filteredMutations = remember(mutations, selectedFilterAccount) {
-        if (selectedFilterAccount == "ALL") {
-            mutations
-        } else if (selectedFilterAccount == "TUNAI") {
-            mutations.filter { it.accountType == "TUNAI" }
-        } else {
-            mutations.filter { it.accountType != "TUNAI" }
+        when (selectedFilterAccount) {
+            "ALL" -> mutations
+            "TUNAI" -> mutations.filter { it.accountType == "TUNAI" }
+            "NON_TUNAI" -> mutations.filter { it.accountType != "TUNAI" }
+            else -> mutations.filter { it.accountType.equals(selectedFilterAccount, ignoreCase = true) }
         }
+    }
+
+    val selectedAccountLabel = remember(selectedFilterAccount, filterOptions) {
+        filterOptions.find { it.first == selectedFilterAccount }?.second ?: selectedFilterAccount
+    }
+
+    val (totalMasukFiltered, totalKeluarFiltered) = remember(filteredMutations) {
+        var masuk = 0.0
+        var keluar = 0.0
+        filteredMutations.forEach { mut ->
+            if (mut.jenis == "MASUK" || (mut.jenis == "PENYESUAIAN" && mut.nominal >= 0)) {
+                masuk += kotlin.math.abs(mut.nominal)
+            } else {
+                keluar += kotlin.math.abs(mut.nominal)
+            }
+        }
+        Pair(masuk, keluar)
     }
 
     Scaffold(
@@ -320,19 +360,32 @@ fun MenuKasScreen(
                                         color = Color(0xFF1B5E20)
                                     )
                                 }
-                                IconButton(
-                                    onClick = {
-                                        targetAccountForEdit = "TUNAI"
-                                        showEditSaldoDialog = true
-                                    },
-                                    modifier = Modifier.size(28.dp)
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Default.Edit,
-                                        contentDescription = "Edit Saldo",
-                                        tint = Color(0xFF2E7D32),
-                                        modifier = Modifier.size(16.dp)
-                                    )
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    IconButton(
+                                        onClick = { selectedFilterAccount = "TUNAI" },
+                                        modifier = Modifier.size(28.dp)
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.History,
+                                            contentDescription = "Lihat Riwayat Kas Tunai",
+                                            tint = Color(0xFF1B5E20),
+                                            modifier = Modifier.size(16.dp)
+                                        )
+                                    }
+                                    IconButton(
+                                        onClick = {
+                                            targetAccountForEdit = "TUNAI"
+                                            showEditSaldoDialog = true
+                                        },
+                                        modifier = Modifier.size(28.dp)
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.Edit,
+                                            contentDescription = "Edit Saldo",
+                                            tint = Color(0xFF2E7D32),
+                                            modifier = Modifier.size(16.dp)
+                                        )
+                                    }
                                 }
                             }
                             Spacer(modifier = Modifier.height(8.dp))
@@ -593,16 +646,30 @@ fun MenuKasScreen(
                                             Icon(imageVector = Icons.Default.Edit, contentDescription = "Edit", tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(12.dp))
                                         }
 
-                                        IconButton(
-                                            onClick = { accountToDelete = acc },
-                                            modifier = Modifier.size(20.dp)
-                                        ) {
-                                            Icon(
-                                                imageVector = Icons.Default.DeleteForever,
-                                                contentDescription = "Hapus Akun",
-                                                tint = Color(0xFFC62828),
-                                                modifier = Modifier.size(14.dp)
-                                            )
+                                        Row(verticalAlignment = Alignment.CenterVertically) {
+                                            IconButton(
+                                                onClick = { selectedFilterAccount = acc.accountType },
+                                                modifier = Modifier.size(22.dp)
+                                            ) {
+                                                Icon(
+                                                    imageVector = Icons.Default.History,
+                                                    contentDescription = "Lihat Riwayat ${acc.accountName}",
+                                                    tint = Color(0xFF1565C0),
+                                                    modifier = Modifier.size(14.dp)
+                                                )
+                                            }
+                                            Spacer(modifier = Modifier.width(2.dp))
+                                            IconButton(
+                                                onClick = { accountToDelete = acc },
+                                                modifier = Modifier.size(20.dp)
+                                            ) {
+                                                Icon(
+                                                    imageVector = Icons.Default.DeleteForever,
+                                                    contentDescription = "Hapus Akun",
+                                                    tint = Color(0xFFC62828),
+                                                    modifier = Modifier.size(14.dp)
+                                                )
+                                            }
                                         }
                                     }
                                     Spacer(modifier = Modifier.height(4.dp))
@@ -630,30 +697,28 @@ fun MenuKasScreen(
                     horizontalAlignment = Alignment.CenterHorizontally
                 ) {
                     Text(
-                        text = "Riwayat Mutasi & Kas Keluar",
+                        text = "Riwayat Mutasi & Kas Terpisah",
                         style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.Bold,
                         color = MaterialTheme.colorScheme.onSurface
                     )
                     Spacer(modifier = Modifier.height(10.dp))
 
-                    // Centered Segmented Filter Row
+                    // Horizontal Scrollable Filter Tabs Row for Every Added Account
                     Surface(
                         shape = RoundedCornerShape(24.dp),
                         color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f),
-                        modifier = Modifier.padding(horizontal = 8.dp)
+                        modifier = Modifier.fillMaxWidth()
                     ) {
                         Row(
-                            modifier = Modifier.padding(4.dp),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .horizontalScroll(rememberScrollState())
+                                .padding(4.dp),
                             horizontalArrangement = Arrangement.spacedBy(4.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            val options = listOf(
-                                "ALL" to "Semua",
-                                "TUNAI" to "Tunai",
-                                "NON_TUNAI" to "Transfer"
-                            )
-                            options.forEach { (code, label) ->
+                            filterOptions.forEach { (code, label) ->
                                 val isSelected = selectedFilterAccount == code
                                 Surface(
                                     onClick = { selectedFilterAccount = code },
@@ -666,8 +731,51 @@ fun MenuKasScreen(
                                         fontSize = 12.sp,
                                         fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
                                         color = if (isSelected) Color.White else MaterialTheme.colorScheme.onSurfaceVariant,
-                                        modifier = Modifier.padding(horizontal = 18.dp, vertical = 8.dp)
+                                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp)
                                     )
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            if (selectedFilterAccount != "ALL") {
+                item {
+                    Card(
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(12.dp),
+                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.35f)),
+                        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(12.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Column {
+                                Text(
+                                    text = "Riwayat Akun: $selectedAccountLabel",
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 13.sp,
+                                    color = MaterialTheme.colorScheme.onPrimaryContainer
+                                )
+                                Text(
+                                    text = "${filteredMutations.size} transaksi mutasi",
+                                    fontSize = 11.sp,
+                                    color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.8f)
+                                )
+                            }
+                            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                                Column(horizontalAlignment = Alignment.End) {
+                                    Text("Total Masuk", fontSize = 10.sp, color = Color(0xFF2E7D32), fontWeight = FontWeight.Medium)
+                                    Text(Formatters.formatRupiah(totalMasukFiltered), fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Color(0xFF2E7D32))
+                                }
+                                Column(horizontalAlignment = Alignment.End) {
+                                    Text("Total Keluar", fontSize = 10.sp, color = Color(0xFFC62828), fontWeight = FontWeight.Medium)
+                                    Text(Formatters.formatRupiah(totalKeluarFiltered), fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Color(0xFFC62828))
                                 }
                             }
                         }
@@ -683,7 +791,7 @@ fun MenuKasScreen(
                         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
                     ) {
                         Text(
-                            text = "Belum ada catatan mutasi kas.",
+                            text = "Belum ada catatan mutasi kas untuk $selectedAccountLabel.",
                             modifier = Modifier.padding(16.dp),
                             fontSize = 13.sp,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
@@ -788,12 +896,26 @@ fun MenuKasScreen(
                                     else if (isMasuk) Color(0xFF2E7D32)
                                     else Color(0xFFC62828)
                                 )
-                                TextButton(
-                                    onClick = { mutationToCancel = mutation },
-                                    contentPadding = PaddingValues(0.dp),
-                                    modifier = Modifier.height(24.dp)
-                                ) {
-                                    Text("Batalkan", fontSize = 10.sp, color = Color(0xFFD32F2F), fontWeight = FontWeight.SemiBold)
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    IconButton(
+                                        onClick = { mutationToEdit = mutation },
+                                        modifier = Modifier.size(24.dp)
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.Edit,
+                                            contentDescription = "Edit Mutasi",
+                                            tint = MaterialTheme.colorScheme.primary,
+                                            modifier = Modifier.size(14.dp)
+                                        )
+                                    }
+                                    Spacer(modifier = Modifier.width(4.dp))
+                                    TextButton(
+                                        onClick = { mutationToCancel = mutation },
+                                        contentPadding = PaddingValues(0.dp),
+                                        modifier = Modifier.height(24.dp)
+                                    ) {
+                                        Text("Batalkan", fontSize = 10.sp, color = Color(0xFFD32F2F), fontWeight = FontWeight.SemiBold)
+                                    }
                                 }
                             }
                         }
@@ -801,6 +923,101 @@ fun MenuKasScreen(
                 }
             }
         }
+    }
+
+    // Dialog Edit Mutasi Kas
+    mutationToEdit?.let { mut ->
+        val context = androidx.compose.ui.platform.LocalContext.current
+        var nominalText by remember(mut) { mutableStateOf(kotlin.math.abs(mut.nominal).toLong().toString()) }
+        var selectedAccount by remember(mut) { mutableStateOf(mut.accountType) }
+        var kategoriText by remember(mut) { mutableStateOf(mut.kategori) }
+        var keteranganText by remember(mut) { mutableStateOf(mut.keterangan) }
+        var tanggalText by remember(mut) { mutableStateOf(mut.tanggal) }
+
+        AlertDialog(
+            onDismissRequest = { mutationToEdit = null },
+            title = { Text("Edit Transaksi Kas", fontWeight = FontWeight.Bold) },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Text("Pilih Sumber/Tujuan Akun Kas:", fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                    Row(
+                        modifier = Modifier.horizontalScroll(rememberScrollState()),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        availableAccounts.forEach { acc ->
+                            FilterChip(
+                                selected = selectedAccount == acc.type,
+                                onClick = { selectedAccount = acc.type },
+                                label = { Text(acc.name, fontSize = 11.sp) }
+                            )
+                        }
+                    }
+
+                    OutlinedTextField(
+                        value = nominalText,
+                        onValueChange = { nominalText = it.filter { c -> c.isDigit() } },
+                        label = { Text("Nominal (Rp)") },
+                        modifier = Modifier.fillMaxWidth(),
+                        singleLine = true,
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number)
+                    )
+
+                    OutlinedTextField(
+                        value = kategoriText,
+                        onValueChange = { kategoriText = it },
+                        label = { Text("Kategori Transaksi") },
+                        modifier = Modifier.fillMaxWidth(),
+                        singleLine = true
+                    )
+
+                    OutlinedTextField(
+                        value = keteranganText,
+                        onValueChange = { keteranganText = it },
+                        label = { Text("Keterangan / Catatan") },
+                        modifier = Modifier.fillMaxWidth(),
+                        singleLine = true
+                    )
+
+                    OutlinedTextField(
+                        value = tanggalText,
+                        onValueChange = { tanggalText = it },
+                        label = { Text("Tanggal (Format: TTTT-BB-HH)") },
+                        modifier = Modifier.fillMaxWidth(),
+                        singleLine = true
+                    )
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        val nom = nominalText.toDoubleOrNull() ?: 0.0
+                        if (nom <= 0) {
+                            Toast.makeText(context, "Nominal harus lebih dari 0", Toast.LENGTH_SHORT).show()
+                            return@Button
+                        }
+                        viewModel.updateCashMutation(
+                            mutationId = mut.id,
+                            newAccountType = selectedAccount,
+                            newNominal = nom,
+                            newKategori = kategoriText.ifBlank { mut.kategori },
+                            newKeterangan = keteranganText,
+                            newTanggal = tanggalText.ifBlank { Formatters.getCurrentDateFormatted() },
+                            onSuccess = {
+                                mutationToEdit = null
+                                Toast.makeText(context, "Mutasi kas berhasil diperbarui!", Toast.LENGTH_SHORT).show()
+                            }
+                        )
+                    }
+                ) {
+                    Text("Simpan Perubahan", fontWeight = FontWeight.Bold)
+                }
+            },
+            dismissButton = {
+                OutlinedButton(onClick = { mutationToEdit = null }) {
+                    Text("Batal")
+                }
+            }
+        )
     }
 
     // Confirmation Dialog for Mutation Cancellation
