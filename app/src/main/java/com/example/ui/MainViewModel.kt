@@ -2101,42 +2101,86 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             // 2. Reverse cash mutations & bank entries
             val allMutations = cashDao.getAllMutationsList()
             val matchedMutations = allMutations.filter {
-                it.keterangan.contains("Barang Masuk #${transaction.id}") || it.keterangan.contains("Nota Masuk #${transaction.id}")
+                it.keterangan.contains("#${transaction.id}") ||
+                it.keterangan.contains("Barang Masuk #${transaction.id}") ||
+                it.keterangan.contains("Nota Masuk #${transaction.id}") ||
+                (transaction.nomorFaktur.isNotBlank() && it.keterangan.contains(transaction.nomorFaktur))
             }
 
             if (matchedMutations.isNotEmpty()) {
                 matchedMutations.forEach { mut ->
-                    val acc = cashDao.getAccountDirect(mut.accountType)
-                    if (acc != null) {
-                        val newSaldo = if (mut.jenis == "KELUAR") {
-                            acc.saldo + mut.nominal
-                        } else {
-                            acc.saldo - mut.nominal
-                        }
-                        cashDao.insertOrUpdateAccount(acc.copy(saldo = newSaldo, lastUpdated = System.currentTimeMillis()))
+                    val acc = cashDao.getAccountDirect(mut.accountType) ?: CashAccountEntity(
+                        accountType = mut.accountType,
+                        accountName = com.example.data.entity.CashAccountDefaults.getAccountName(mut.accountType),
+                        saldo = 0.0
+                    )
+                    val newSaldo = if (mut.jenis == "KELUAR") {
+                        acc.saldo + mut.nominal
+                    } else {
+                        acc.saldo - mut.nominal
                     }
+                    cashDao.insertOrUpdateAccount(acc.copy(saldo = newSaldo, lastUpdated = System.currentTimeMillis()))
                     cashDao.deleteMutation(mut.id)
                 }
             } else if (transaction.statusPembayaran != "Hutang") {
                 val targetAccount = when {
-                    transaction.statusPembayaran == "Tunai" -> "TUNAI"
+                    transaction.statusPembayaran.contains("Tunai", ignoreCase = true) -> "TUNAI"
                     else -> {
                         val allAccs = cashDao.getAllAccountsList()
                         val matchedAcc = allAccs.find { it.accountType.equals(transaction.statusPembayaran, ignoreCase = true) || it.accountName.equals(transaction.statusPembayaran, ignoreCase = true) }
                         matchedAcc?.accountType ?: "BANK"
                     }
                 }
-                val currentAccount = cashDao.getAccountDirect(targetAccount)
-                if (currentAccount != null) {
-                    val newSaldo = currentAccount.saldo + transaction.totalNilai
-                    cashDao.insertOrUpdateAccount(currentAccount.copy(saldo = newSaldo, lastUpdated = System.currentTimeMillis()))
+                val currentAccount = cashDao.getAccountDirect(targetAccount) ?: CashAccountEntity(
+                    accountType = targetAccount,
+                    accountName = com.example.data.entity.CashAccountDefaults.getAccountName(targetAccount),
+                    saldo = 0.0
+                )
+                val newSaldo = currentAccount.saldo + transaction.totalNilai
+                cashDao.insertOrUpdateAccount(currentAccount.copy(saldo = newSaldo, lastUpdated = System.currentTimeMillis()))
+
+                // Also attempt to delete any orphan cash mutation for this transaction if supplier name matches
+                if (transaction.namaSupplier.isNotBlank() && transaction.namaSupplier != "Supplier Umum") {
+                    val orphanMutations = allMutations.filter {
+                        it.jenis == "KELUAR" && it.keterangan.contains(transaction.namaSupplier) && it.kategori.contains("Pembelian")
+                    }
+                    orphanMutations.forEach { orphan ->
+                        cashDao.deleteMutation(orphan.id)
+                    }
                 }
             }
 
-            // 3. Remove supplier payables created for this transaction, if any
+            // 3. Remove supplier payables created for this transaction and revert payments made to cash
             val payables = supplierPayableDao.getAllPayablesList()
-            val matchingPayable = payables.find { it.catatan.contains("Barang Masuk #${transaction.id}") || it.catatan.contains("Nota Masuk #${transaction.id}") }
+            val matchingPayable = payables.find {
+                it.incomingTransactionId == transaction.id ||
+                it.catatan.contains("#${transaction.id}") ||
+                it.catatan.contains("Barang Masuk #${transaction.id}") ||
+                it.catatan.contains("Nota Masuk #${transaction.id}") ||
+                (transaction.nomorFaktur.isNotBlank() && it.catatan.contains(transaction.nomorFaktur))
+            }
             if (matchingPayable != null) {
+                val payments = supplierPayableDao.getPaymentsByPayableList(matchingPayable.id)
+                payments.forEach { p ->
+                    val pAccType = when {
+                        p.metodePembayaran.equals("Tunai", ignoreCase = true) -> "TUNAI"
+                        p.metodePembayaran.equals("Transfer", ignoreCase = true) -> "BANK"
+                        else -> p.metodePembayaran.ifBlank { "TUNAI" }
+                    }
+                    val pAcc = cashDao.getAccountDirect(pAccType) ?: CashAccountEntity(
+                        accountType = pAccType,
+                        accountName = com.example.data.entity.CashAccountDefaults.getAccountName(pAccType),
+                        saldo = 0.0
+                    )
+                    cashDao.insertOrUpdateAccount(pAcc.copy(saldo = pAcc.saldo + p.nominalBayar, lastUpdated = System.currentTimeMillis()))
+
+                    val paymentMutations = allMutations.filter {
+                        it.jenis == "KELUAR" && (it.keterangan.contains(matchingPayable.namaSupplier) || it.keterangan.contains("Bayar Hutang"))
+                    }
+                    paymentMutations.forEach { pm ->
+                        cashDao.deleteMutation(pm.id)
+                    }
+                }
                 supplierPayableDao.deletePaymentsByPayable(matchingPayable.id)
                 supplierPayableDao.deletePayable(matchingPayable.id)
             }
@@ -2238,25 +2282,32 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             // 3. Revert previous cash mutation / bank balance impact
             val allMutations = cashDao.getAllMutationsList()
             val matchedMutations = allMutations.filter {
-                it.keterangan.contains("Barang Masuk #${oldTx.id}") || it.keterangan.contains("Nota Masuk #${oldTx.id}")
+                it.keterangan.contains("#${oldTx.id}") ||
+                it.keterangan.contains("Barang Masuk #${oldTx.id}") ||
+                it.keterangan.contains("Nota Masuk #${oldTx.id}") ||
+                (oldTx.nomorFaktur.isNotBlank() && it.keterangan.contains(oldTx.nomorFaktur))
             }
 
             if (matchedMutations.isNotEmpty()) {
                 matchedMutations.forEach { mut ->
-                    val acc = cashDao.getAccountDirect(mut.accountType)
-                    if (acc != null) {
-                        val revertedSaldo = if (mut.jenis == "KELUAR") acc.saldo + mut.nominal else acc.saldo - mut.nominal
-                        cashDao.insertOrUpdateAccount(acc.copy(saldo = revertedSaldo, lastUpdated = System.currentTimeMillis()))
-                    }
+                    val acc = cashDao.getAccountDirect(mut.accountType) ?: CashAccountEntity(
+                        accountType = mut.accountType,
+                        accountName = com.example.data.entity.CashAccountDefaults.getAccountName(mut.accountType),
+                        saldo = 0.0
+                    )
+                    val revertedSaldo = if (mut.jenis == "KELUAR") acc.saldo + mut.nominal else acc.saldo - mut.nominal
+                    cashDao.insertOrUpdateAccount(acc.copy(saldo = revertedSaldo, lastUpdated = System.currentTimeMillis()))
                     cashDao.deleteMutation(mut.id)
                 }
             } else if (oldTx.statusPembayaran != "Hutang") {
-                val oldTargetAcc = if (oldTx.statusPembayaran == "Tunai") "TUNAI" else "BANK"
-                val acc = cashDao.getAccountDirect(oldTargetAcc)
-                if (acc != null) {
-                    val revertedSaldo = acc.saldo + oldTx.totalNilai
-                    cashDao.insertOrUpdateAccount(acc.copy(saldo = revertedSaldo, lastUpdated = System.currentTimeMillis()))
-                }
+                val oldTargetAcc = if (oldTx.statusPembayaran.contains("Tunai", ignoreCase = true)) "TUNAI" else "BANK"
+                val acc = cashDao.getAccountDirect(oldTargetAcc) ?: CashAccountEntity(
+                    accountType = oldTargetAcc,
+                    accountName = com.example.data.entity.CashAccountDefaults.getAccountName(oldTargetAcc),
+                    saldo = 0.0
+                )
+                val revertedSaldo = acc.saldo + oldTx.totalNilai
+                cashDao.insertOrUpdateAccount(acc.copy(saldo = revertedSaldo, lastUpdated = System.currentTimeMillis()))
             }
 
             // 4. Update or Record Supplier Payables or Cash Deduction
