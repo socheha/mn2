@@ -50,6 +50,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -75,6 +76,7 @@ import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.AnnotatedString
 import android.widget.Toast
+import kotlinx.coroutines.launch
 import com.example.util.ExcelImportUtils
 import com.example.util.ImportedItemRaw
 import com.example.data.entity.ItemEntity
@@ -121,6 +123,7 @@ fun MenuBarangScreen(
         combined
     }
 
+    val coroutineScope = rememberCoroutineScope()
     var showAddDialog by remember { mutableStateOf(false) }
     var showExcelImportDialog by remember { mutableStateOf(false) }
     var showScanReceiptDialog by remember { mutableStateOf(false) }
@@ -295,8 +298,10 @@ fun MenuBarangScreen(
 
                             Card(
                                 onClick = {
-                                    val resultMsg = com.example.util.AppBackupUtils.saveCsvToDownloads(context, itemsList)
-                                    android.widget.Toast.makeText(context, resultMsg, android.widget.Toast.LENGTH_LONG).show()
+                                    coroutineScope.launch {
+                                        val resultMsg = com.example.util.AppBackupUtils.saveCsvToPreferredStorage(context, itemsList)
+                                        android.widget.Toast.makeText(context, resultMsg, android.widget.Toast.LENGTH_LONG).show()
+                                    }
                                 },
                                 colors = CardDefaults.cardColors(containerColor = Color(0xFFE3F2FD)),
                                 shape = RoundedCornerShape(8.dp),

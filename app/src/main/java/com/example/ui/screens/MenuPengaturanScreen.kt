@@ -1,9 +1,12 @@
 package com.example.ui.screens
 
+import android.content.Intent
+import android.net.Uri
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -22,22 +25,29 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Backup
+import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.CloudDone
 import androidx.compose.material.icons.filled.CloudOff
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.ContentPaste
 import androidx.compose.material.icons.filled.DarkMode
 import androidx.compose.material.icons.filled.DeleteForever
+import androidx.compose.material.icons.filled.Explore
 import androidx.compose.material.icons.filled.FileDownload
 import androidx.compose.material.icons.filled.FileUpload
 import androidx.compose.material.icons.filled.Folder
+import androidx.compose.material.icons.filled.FolderSpecial
 import androidx.compose.material.icons.filled.LightMode
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.LockOpen
 import androidx.compose.material.icons.filled.Restore
 import androidx.compose.material.icons.filled.Schedule
+import androidx.compose.material.icons.filled.SdStorage
 import androidx.compose.material.icons.filled.Security
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.Share
+import androidx.compose.material.icons.filled.Storage
 import androidx.compose.material.icons.filled.Sync
 import androidx.compose.material.icons.filled.VpnKey
 import androidx.compose.material.icons.filled.Warning
@@ -48,9 +58,12 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.RadioButton
+import androidx.compose.material3.RadioButtonDefaults
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
@@ -60,6 +73,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -69,8 +83,10 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import kotlinx.coroutines.launch
 import com.example.ui.MainViewModel
 import com.example.util.AppBackupUtils
+import com.example.util.StorageLocationManager
 import com.example.util.ThemePreferenceManager
 import java.io.BufferedReader
 import java.io.File
@@ -83,10 +99,15 @@ import java.util.Locale
 fun MenuPengaturanScreen(viewModel: MainViewModel) {
     val context = LocalContext.current
     val scrollState = rememberScrollState()
+    val coroutineScope = rememberCoroutineScope()
 
     val themeMode by viewModel.themeMode.collectAsState()
     val isAutoBackupEnabled by viewModel.isAutoBackupEnabled.collectAsState()
+    val autoBackupFrequency by viewModel.autoBackupFrequency.collectAsState()
+    val autoBackupHour by viewModel.autoBackupHour.collectAsState()
     val lastAutoBackupTime by viewModel.lastAutoBackupTime.collectAsState()
+    val lastAutoBackupStatus by viewModel.lastAutoBackupStatus.collectAsState()
+    val nextScheduledBackupTime by viewModel.nextScheduledBackupTime.collectAsState()
     val pendingSyncCount by viewModel.pendingSyncCount.collectAsState()
     val isOnlineStatus by viewModel.isOnlineStatus.collectAsState()
     val isSyncing by viewModel.isSyncing.collectAsState()
@@ -95,6 +116,30 @@ fun MenuPengaturanScreen(viewModel: MainViewModel) {
     val isPinEnabled by viewModel.isPinEnabled.collectAsState()
     val pinTimeoutMinutes by viewModel.pinTimeoutMinutes.collectAsState()
     val securityQuestion by viewModel.securityQuestion.collectAsState()
+
+    val storageLocationType by viewModel.storageLocationType.collectAsState()
+    val customStorageFolderName by viewModel.customStorageFolderName.collectAsState()
+    val customStorageTreeUri by viewModel.customStorageTreeUri.collectAsState()
+    val isDualCopyDownloads by viewModel.isDualCopyDownloads.collectAsState()
+    val isAlwaysPromptSaveAs by viewModel.isAlwaysPromptSaveAs.collectAsState()
+    val freeStorageSpace by viewModel.freeStorageSpace.collectAsState()
+
+    // Activity launcher for Storage Access Framework (SAF) folder picker
+    val openDocumentTreeLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocumentTree()
+    ) { uri: Uri? ->
+        if (uri != null) {
+            try {
+                val takeFlags = Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION
+                context.contentResolver.takePersistableUriPermission(uri, takeFlags)
+            } catch (e: Exception) {
+                // Some document providers might not support persistable permissions
+            }
+            val folderName = StorageLocationManager.getFolderNameFromUri(context, uri)
+            viewModel.setCustomStorageFolder(uri, folderName)
+            Toast.makeText(context, "Folder penyimpanan diatur ke: $folderName", Toast.LENGTH_LONG).show()
+        }
+    }
 
     var showSetPinDialog by remember { mutableStateOf(false) }
     var inputPin by remember { mutableStateOf("") }
@@ -188,64 +233,428 @@ fun MenuPengaturanScreen(viewModel: MainViewModel) {
 
         Spacer(modifier = Modifier.height(14.dp))
 
-        // --- 0. CARD PERLINDUNGAN & PEMULIHAN DATA SEBELUM UPDATE ---
+        // --- 0.A. CARD PENENTUAN & PEMILIHAN LOKASI PENYIMPANAN FILE ---
         Card(
-            modifier = Modifier.fillMaxWidth().testTag("card_pemulihan_data_update"),
+            modifier = Modifier.fillMaxWidth().testTag("card_lokasi_penyimpanan"),
+            shape = RoundedCornerShape(16.dp),
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+            elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+        ) {
+            Column(modifier = Modifier.padding(16.dp)) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Row(
+                        modifier = Modifier.weight(1f),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.FolderSpecial,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(24.dp)
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Column {
+                            Text(
+                                text = "Lokasi Penyimpanan File",
+                                fontSize = 16.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.primary
+                            )
+                            Text(
+                                text = "Penentuan Target Folder Cadangan & Ekspor",
+                                fontSize = 11.sp,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+                    Surface(
+                        shape = RoundedCornerShape(20.dp),
+                        color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.6f)
+                    ) {
+                        Text(
+                            text = freeStorageSpace,
+                            fontSize = 10.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onPrimaryContainer,
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                        )
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(6.dp))
+                Text(
+                    text = "Tentukan lokasi penyimpanan untuk seluruh file auto-backup harian, ekspor data barang CSV/Excel, dan arsip database JSON:",
+                    fontSize = 12.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+
+                Spacer(modifier = Modifier.height(10.dp))
+
+                // Active Location Banner
+                val (activeTitle, activePath) = when (storageLocationType) {
+                    StorageLocationManager.STORAGE_DOWNLOADS -> Pair("Folder Download Publik", "/Download/SmartStock_AutoBackup/")
+                    StorageLocationManager.STORAGE_DOCUMENTS -> Pair("Folder Dokumen Publik", "/Documents/SmartStock_Backups/")
+                    StorageLocationManager.STORAGE_CUSTOM_SAF -> Pair("Folder Khusus (SAF / SD Card / USB)", customStorageFolderName)
+                    else -> Pair("Memori Internal Aplikasi (Default)", "Android/data/${context.packageName}/files/auto_backups/")
+                }
+
+                Surface(
+                    shape = RoundedCornerShape(10.dp),
+                    color = MaterialTheme.colorScheme.primary.copy(alpha = 0.08f),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Row(
+                        modifier = Modifier.padding(10.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(
+                            imageVector = when (storageLocationType) {
+                                StorageLocationManager.STORAGE_CUSTOM_SAF -> Icons.Default.SdStorage
+                                StorageLocationManager.STORAGE_DOWNLOADS -> Icons.Default.FileDownload
+                                StorageLocationManager.STORAGE_DOCUMENTS -> Icons.Default.Folder
+                                else -> Icons.Default.Storage
+                            },
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(24.dp)
+                        )
+                        Spacer(modifier = Modifier.width(10.dp))
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = "Lokasi Aktif: $activeTitle",
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.primary
+                            )
+                            Text(
+                                text = activePath,
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Medium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(12.dp))
+
+                Text(
+                    text = "Pilihan Lokasi Penyimpanan:",
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onSurface
+                )
+                Spacer(modifier = Modifier.height(6.dp))
+
+                // Option 1: Internal Storage
+                StorageOptionItem(
+                    title = "1. Memori Internal Aplikasi (Sandbox Aman)",
+                    subtitle = "Tersimpan di sandbox aplikasi. Sangat aman dan tidak terhapus aplikasi pembersih cache.",
+                    isSelected = storageLocationType == StorageLocationManager.STORAGE_INTERNAL,
+                    onClick = { viewModel.setStorageLocationType(StorageLocationManager.STORAGE_INTERNAL) }
+                )
+
+                Spacer(modifier = Modifier.height(6.dp))
+
+                // Option 2: Downloads Folder
+                StorageOptionItem(
+                    title = "2. Folder Download Publik (Rekomendasi)",
+                    subtitle = "Folder /Download/SmartStock_AutoBackup/ (Mudah dicari di File Manager / WA / PC).",
+                    isSelected = storageLocationType == StorageLocationManager.STORAGE_DOWNLOADS,
+                    onClick = { viewModel.setStorageLocationType(StorageLocationManager.STORAGE_DOWNLOADS) }
+                )
+
+                Spacer(modifier = Modifier.height(6.dp))
+
+                // Option 3: Documents Folder
+                StorageOptionItem(
+                    title = "3. Folder Dokumen Publik",
+                    subtitle = "Folder /Documents/SmartStock_Backups/ (Standar dokumen Android).",
+                    isSelected = storageLocationType == StorageLocationManager.STORAGE_DOCUMENTS,
+                    onClick = { viewModel.setStorageLocationType(StorageLocationManager.STORAGE_DOCUMENTS) }
+                )
+
+                Spacer(modifier = Modifier.height(6.dp))
+
+                // Option 4: Custom SAF / SD Card / USB OTG
+                StorageOptionItem(
+                    title = "4. Folder Khusus / Kartu SD / USB Flashdisk (SAF)",
+                    subtitle = if (storageLocationType == StorageLocationManager.STORAGE_CUSTOM_SAF && customStorageFolderName.isNotBlank()) {
+                        "Folder terpilih: $customStorageFolderName"
+                    } else {
+                        "Bebas tentukan lokasi folder manapun di Kartu SD Eksternal, Flashdisk, atau memori ponsel via Storage Access Framework."
+                    },
+                    isSelected = storageLocationType == StorageLocationManager.STORAGE_CUSTOM_SAF,
+                    onClick = {
+                        viewModel.setStorageLocationType(StorageLocationManager.STORAGE_CUSTOM_SAF)
+                        if (customStorageTreeUri.isNullOrBlank()) {
+                            openDocumentTreeLauncher.launch(null)
+                        }
+                    }
+                )
+
+                if (storageLocationType == StorageLocationManager.STORAGE_CUSTOM_SAF) {
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Button(
+                        onClick = { openDocumentTreeLauncher.launch(null) },
+                        modifier = Modifier.fillMaxWidth().testTag("btn_pilih_folder_saf"),
+                        shape = RoundedCornerShape(10.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
+                    ) {
+                        Icon(Icons.Default.Explore, contentDescription = null, modifier = Modifier.size(18.dp))
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            text = if (customStorageFolderName.isNotBlank()) "Ubah / Pilih Ulang Folder (SAF)" else "Pilih Folder di Kartu SD / Memori (SAF)",
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(10.dp))
+
+                // Switch Dual-Copy to Downloads
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = "Simpan Salinan Ganda ke Folder Download",
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            color = MaterialTheme.colorScheme.onSurface
+                        )
+                        Text(
+                            text = "Menyimpan 1 salinan tambahan di Download agar data tetap aman berlapis.",
+                            fontSize = 10.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Switch(
+                        checked = isDualCopyDownloads,
+                        onCheckedChange = { viewModel.setDualCopyDownloads(it) }
+                    )
+                }
+
+                Spacer(modifier = Modifier.height(10.dp))
+
+                // Action Buttons: Test Write & Open File Manager
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    OutlinedButton(
+                        onClick = {
+                            isProcessing = true
+                            viewModel.testStorageLocation { success, msg ->
+                                isProcessing = false
+                                Toast.makeText(context, msg, Toast.LENGTH_LONG).show()
+                            }
+                        },
+                        modifier = Modifier.weight(1f).testTag("btn_uji_coba_penyimpanan"),
+                        shape = RoundedCornerShape(10.dp)
+                    ) {
+                        Icon(Icons.Default.CheckCircle, contentDescription = null, modifier = Modifier.size(16.dp))
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text("Uji Izin Tulis", fontSize = 12.sp)
+                    }
+
+                    OutlinedButton(
+                        onClick = {
+                            try {
+                                val intent = Intent(Intent.ACTION_VIEW).apply {
+                                    setDataAndType(Uri.parse(android.os.Environment.getExternalStoragePublicDirectory(android.os.Environment.DIRECTORY_DOWNLOADS).path), "*/*")
+                                    flags = Intent.FLAG_ACTIVITY_NEW_TASK
+                                }
+                                context.startActivity(Intent.createChooser(intent, "Buka File Manager"))
+                            } catch (e: Exception) {
+                                Toast.makeText(context, "Folder tersimpan di: $activePath", Toast.LENGTH_SHORT).show()
+                            }
+                        },
+                        modifier = Modifier.weight(1f),
+                        shape = RoundedCornerShape(10.dp)
+                    ) {
+                        Icon(Icons.Default.Folder, contentDescription = null, modifier = Modifier.size(16.dp))
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text("Buka Folder", fontSize = 12.sp)
+                    }
+                }
+            }
+        }
+
+        Spacer(modifier = Modifier.height(14.dp))
+
+        // --- 0. CARD AUTO BACKUP SETIAP 24 JAM (JAM 12 MALAM) ---
+        Card(
+            modifier = Modifier.fillMaxWidth().testTag("card_auto_backup_24jam"),
             shape = RoundedCornerShape(16.dp),
             colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.35f)),
             elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
         ) {
             Column(modifier = Modifier.padding(16.dp)) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(
-                        imageVector = Icons.Default.Security,
-                        contentDescription = null,
-                        tint = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier.size(24.dp)
-                    )
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Column {
-                        Text(
-                            text = "Pemulihan Data & Anti Hilang Saat Update",
-                            fontSize = 16.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.primary
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(
+                            imageVector = Icons.Default.Schedule,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(24.dp)
                         )
-                        Text(
-                            text = "Status: Terlindungi (Room Migration & Auto Snapshot Aktif)",
-                            fontSize = 11.sp,
-                            fontWeight = FontWeight.SemiBold,
-                            color = Color(0xFF2E7D32)
-                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Column {
+                            Text(
+                                text = "Auto Backup Setiap 24 Jam",
+                                fontSize = 16.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.primary
+                            )
+                            Text(
+                                text = "Pukul 00:00 (12 Malam) Otomatis",
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                color = if (isAutoBackupEnabled) Color(0xFF2E7D32) else Color(0xFFC62828)
+                            )
+                        }
                     }
+                    Switch(
+                        checked = isAutoBackupEnabled,
+                        onCheckedChange = { viewModel.setAutoBackupEnabled(it) }
+                    )
                 }
 
                 Spacer(modifier = Modifier.height(8.dp))
                 Text(
-                    text = "Jika data Anda sebelumnya sempat tereset saat memperbarui aplikasi, Anda dapat memulihkannya kembali secara otomatis dalam 1 kali klik dari snapshot cadangan sistem.",
+                    text = "Sistem secara otomatis mencadangkan seluruh data barang, stok toko, kas tunai/bank, transaksi, piutang, dan hutang setiap 24 jam tepat pukul 12 malam ke memori internal.",
                     fontSize = 12.sp,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
 
+                Spacer(modifier = Modifier.height(10.dp))
+
+                // Detail Status Box
+                Surface(
+                    shape = RoundedCornerShape(10.dp),
+                    color = MaterialTheme.colorScheme.surface.copy(alpha = 0.7f),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Column(modifier = Modifier.padding(10.dp)) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Text("Status Jadwal:", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Text(
+                                text = if (isAutoBackupEnabled) "Aktif (Setiap 24 Jam)" else "Nonaktif",
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = if (isAutoBackupEnabled) Color(0xFF2E7D32) else Color(0xFFC62828)
+                            )
+                        }
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Text("Jadwal Berikutnya:", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Text(
+                                text = nextScheduledBackupTime,
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                color = MaterialTheme.colorScheme.primary
+                            )
+                        }
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Text("Terakhir Backup:", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Text(
+                                text = if (lastAutoBackupTime > 0) SimpleDateFormat("dd MMM yyyy HH:mm 'WIB'", Locale("id", "ID")).format(Date(lastAutoBackupTime)) else "Belum pernah",
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                color = MaterialTheme.colorScheme.onSurface
+                            )
+                        }
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Text("Catatan Status:", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Text(
+                                text = lastAutoBackupStatus.take(30) + if (lastAutoBackupStatus.length > 30) "..." else "",
+                                fontSize = 10.sp,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(10.dp))
+
+                // Pilihan Frekuensi Backup
+                Text(
+                    text = "Pilihan Interval Waktu Backup:",
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    color = MaterialTheme.colorScheme.onSurface
+                )
+                Spacer(modifier = Modifier.height(6.dp))
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    FilterChip(
+                        selected = autoBackupFrequency == com.example.util.AutoBackupManager.FREQ_24_HOURS,
+                        onClick = { viewModel.setAutoBackupFrequency(com.example.util.AutoBackupManager.FREQ_24_HOURS) },
+                        label = { Text("24 Jam (12 Malam)", fontSize = 11.sp) },
+                        modifier = Modifier.weight(1f)
+                    )
+                    FilterChip(
+                        selected = autoBackupFrequency == com.example.util.AutoBackupManager.FREQ_12_HOURS,
+                        onClick = { viewModel.setAutoBackupFrequency(com.example.util.AutoBackupManager.FREQ_12_HOURS) },
+                        label = { Text("12 Jam", fontSize = 11.sp) },
+                        modifier = Modifier.weight(1f)
+                    )
+                    FilterChip(
+                        selected = autoBackupFrequency == com.example.util.AutoBackupManager.FREQ_WEEKLY,
+                        onClick = { viewModel.setAutoBackupFrequency(com.example.util.AutoBackupManager.FREQ_WEEKLY) },
+                        label = { Text("Mingguan", fontSize = 11.sp) },
+                        modifier = Modifier.weight(1f)
+                    )
+                }
+
                 Spacer(modifier = Modifier.height(12.dp))
 
-                // Tombol Pulihkan Data Sebelum Update
+                // Tombol Aksi Backup
                 Button(
                     onClick = {
                         isProcessing = true
-                        viewModel.restoreFromLatestAutoSnapshot { success, msg ->
+                        viewModel.runAutoBackupNow { msg ->
                             isProcessing = false
                             Toast.makeText(context, msg, Toast.LENGTH_LONG).show()
                         }
                     },
-                    modifier = Modifier.fillMaxWidth().testTag("btn_restore_pre_update"),
+                    modifier = Modifier.fillMaxWidth().testTag("btn_run_auto_backup_now"),
                     shape = RoundedCornerShape(10.dp),
                     colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
                 ) {
-                    Icon(Icons.Default.Restore, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Icon(Icons.Default.Backup, contentDescription = null, modifier = Modifier.size(18.dp))
                     Spacer(modifier = Modifier.width(8.dp))
                     Text(
-                        text = if (isProcessing) "Memulihkan Data..." else "Kembalikan Data Sebelum Update (Auto Recovery)",
+                        text = if (isProcessing) "Menjalankan Auto Backup..." else "Jalankan Auto Backup Sekarang (Uji Coba)",
                         fontSize = 13.sp,
                         fontWeight = FontWeight.Bold
                     )
@@ -264,21 +673,23 @@ fun MenuPengaturanScreen(viewModel: MainViewModel) {
                     ) {
                         Icon(Icons.Default.Folder, contentDescription = null, modifier = Modifier.size(16.dp))
                         Spacer(modifier = Modifier.width(4.dp))
-                        Text("Pilih Cadangan", fontSize = 12.sp)
+                        Text("Daftar File Cadangan", fontSize = 12.sp)
                     }
 
                     OutlinedButton(
                         onClick = {
-                            viewModel.loadStandardSampleStoreData { success, msg ->
+                            isProcessing = true
+                            viewModel.restoreFromLatestAutoSnapshot { success, msg ->
+                                isProcessing = false
                                 Toast.makeText(context, msg, Toast.LENGTH_LONG).show()
                             }
                         },
                         modifier = Modifier.weight(1f),
                         shape = RoundedCornerShape(10.dp)
                     ) {
-                        Icon(Icons.Default.Backup, contentDescription = null, modifier = Modifier.size(16.dp))
+                        Icon(Icons.Default.Restore, contentDescription = null, modifier = Modifier.size(16.dp))
                         Spacer(modifier = Modifier.width(4.dp))
-                        Text("Data Standar Toko", fontSize = 12.sp)
+                        Text("Pulihkan Terakhir", fontSize = 12.sp)
                     }
                 }
             }
@@ -756,18 +1167,26 @@ fun MenuPengaturanScreen(viewModel: MainViewModel) {
 
                 Button(
                     onClick = {
+                        isProcessing = true
                         viewModel.exportFullBackupJson { jsonStr ->
-                            val resultMessage = AppBackupUtils.saveJsonBackupToDownloads(context, jsonStr)
-                            Toast.makeText(context, resultMessage, Toast.LENGTH_LONG).show()
+                            isProcessing = false
+                            coroutineScope.launch {
+                                val resultMessage = AppBackupUtils.saveJsonBackupToPreferredStorage(context, jsonStr)
+                                Toast.makeText(context, resultMessage, Toast.LENGTH_LONG).show()
+                            }
                         }
                     },
-                    modifier = Modifier.fillMaxWidth(),
+                    modifier = Modifier.fillMaxWidth().testTag("btn_simpan_backup_manual"),
                     shape = RoundedCornerShape(10.dp),
                     colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
                 ) {
                     Icon(imageVector = Icons.Default.FileDownload, contentDescription = null, modifier = Modifier.size(18.dp))
                     Spacer(modifier = Modifier.width(8.dp))
-                    Text("Simpan ke Folder Download", fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                    Text(
+                        text = "Simpan ke Lokasi Penyimpanan Aktif",
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.Bold
+                    )
                 }
 
                 Spacer(modifier = Modifier.height(8.dp))
@@ -920,22 +1339,27 @@ fun MenuPengaturanScreen(viewModel: MainViewModel) {
 
     // --- DIALOG AUTO BACKUP FILES LIST ---
     if (showAutoBackupListDialog) {
-        val files = remember { viewModel.getAllRecoveryFiles() }
+        val files = remember {
+            (viewModel.getAllRecoveryFiles() + viewModel.getLocalAutoBackupFiles())
+                .distinctBy { it.absolutePath }
+                .sortedByDescending { it.lastModified() }
+        }
         AlertDialog(
             onDismissRequest = { showAutoBackupListDialog = false },
             title = {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Icon(Icons.Default.Folder, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
                     Spacer(modifier = Modifier.width(8.dp))
-                    Text("Cadangan & Snapshot Sistem", fontWeight = FontWeight.Bold, fontSize = 16.sp)
+                    Text("Daftar File Auto Backup (${files.size})", fontWeight = FontWeight.Bold, fontSize = 16.sp)
                 }
             },
             text = {
                 if (files.isEmpty()) {
                     Text("Belum ada file cadangan yang tersimpan di memori internal.", fontSize = 13.sp)
                 } else {
-                    LazyColumn(modifier = Modifier.height(260.dp)) {
+                    LazyColumn(modifier = Modifier.height(300.dp)) {
                         items(files) { file ->
+                            val fileSizeKb = (file.length() / 1024.0).let { if (it < 1.0) "1 KB" else "%.1f KB".format(it) }
                             Card(
                                 modifier = Modifier
                                     .fillMaxWidth()
@@ -950,27 +1374,43 @@ fun MenuPengaturanScreen(viewModel: MainViewModel) {
                                     verticalAlignment = Alignment.CenterVertically
                                 ) {
                                     Column(modifier = Modifier.weight(1f)) {
-                                        Text(file.name, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                                        Text(file.name, fontWeight = FontWeight.Bold, fontSize = 12.sp, maxLines = 1)
                                         Text(
-                                            SimpleDateFormat("dd MMM yyyy HH:mm", Locale("id", "ID")).format(Date(file.lastModified())),
+                                            "${SimpleDateFormat("dd MMM yyyy HH:mm", Locale("id", "ID")).format(Date(file.lastModified()))} • $fileSizeKb",
                                             fontSize = 11.sp,
                                             color = MaterialTheme.colorScheme.onSurfaceVariant
                                         )
                                     }
-                                    TextButton(
-                                        onClick = {
-                                            try {
-                                                val content = file.readText(Charsets.UTF_8)
-                                                viewModel.restoreFromBackupJson(content) { success, msg ->
-                                                    Toast.makeText(context, msg, Toast.LENGTH_LONG).show()
-                                                    showAutoBackupListDialog = false
+                                    Row {
+                                        IconButton(
+                                            onClick = {
+                                                try {
+                                                    val content = file.readText(Charsets.UTF_8)
+                                                    AppBackupUtils.shareJsonBackupFile(context, content)
+                                                } catch (e: Exception) {
+                                                    Toast.makeText(context, "Gagal membagikan: ${e.message}", Toast.LENGTH_SHORT).show()
                                                 }
-                                            } catch (e: Exception) {
-                                                Toast.makeText(context, "Gagal memulihkan: ${e.message}", Toast.LENGTH_SHORT).show()
-                                            }
+                                            },
+                                            modifier = Modifier.size(36.dp)
+                                        ) {
+                                            Icon(Icons.Default.Share, contentDescription = "Bagikan", modifier = Modifier.size(16.dp), tint = MaterialTheme.colorScheme.primary)
                                         }
-                                    ) {
-                                        Text("Restore", fontSize = 12.sp)
+
+                                        TextButton(
+                                            onClick = {
+                                                try {
+                                                    val content = file.readText(Charsets.UTF_8)
+                                                    viewModel.restoreFromBackupJson(content) { success, msg ->
+                                                        Toast.makeText(context, msg, Toast.LENGTH_LONG).show()
+                                                        showAutoBackupListDialog = false
+                                                    }
+                                                } catch (e: Exception) {
+                                                    Toast.makeText(context, "Gagal memulihkan: ${e.message}", Toast.LENGTH_SHORT).show()
+                                                }
+                                            }
+                                        ) {
+                                            Text("Restore", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                                        }
                                     }
                                 }
                             }
@@ -1369,5 +1809,46 @@ fun MenuPengaturanScreen(viewModel: MainViewModel) {
                 }
             }
         )
+    }
+}
+
+@Composable
+fun StorageOptionItem(
+    title: String,
+    subtitle: String,
+    isSelected: Boolean,
+    onClick: () -> Unit
+) {
+    Surface(
+        shape = RoundedCornerShape(10.dp),
+        color = if (isSelected) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.4f) else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f),
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable { onClick() }
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            RadioButton(
+                selected = isSelected,
+                onClick = onClick,
+                colors = RadioButtonDefaults.colors(selectedColor = MaterialTheme.colorScheme.primary)
+            )
+            Spacer(modifier = Modifier.width(6.dp))
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = title,
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
+                )
+                Text(
+                    text = subtitle,
+                    fontSize = 10.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+        }
     }
 }

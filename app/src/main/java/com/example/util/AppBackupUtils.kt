@@ -56,6 +56,20 @@ object AppBackupUtils {
     }
 
     /**
+     * Save CSV/Excel backup file of Items directly into the device's preferred storage location
+     */
+    suspend fun saveCsvToPreferredStorage(context: Context, items: List<ItemEntity>): String = withContext(Dispatchers.IO) {
+        val csvContent = generateItemsCsvString(items)
+        val dateStamp = Formatters.getCurrentDateFormatted().replace("-", "")
+        val timeStamp = (System.currentTimeMillis() % 10000).toString()
+        val fileName = "Backup_Data_Barang_SmartStock_${dateStamp}_${timeStamp}.csv"
+        val bytes = csvContent.toByteArray(Charsets.UTF_8)
+
+        val result = StorageLocationManager.writeBytesToPreferredStorage(context, fileName, "text/csv", bytes)
+        result.second
+    }
+
+    /**
      * Save CSV/Excel backup file of Items directly into the device's public Downloads directory
      */
     fun saveCsvToDownloads(context: Context, items: List<ItemEntity>): String {
@@ -640,6 +654,19 @@ object AppBackupUtils {
             e.printStackTrace()
             Result.failure(Exception("Gagal me-restore data: ${e.message}"))
         }
+    }
+
+    /**
+     * Save JSON backup file directly into the device's preferred storage location (Downloads, Documents, Custom Folder, or Internal)
+     */
+    suspend fun saveJsonBackupToPreferredStorage(context: Context, jsonString: String, customFileName: String? = null): String = withContext(Dispatchers.IO) {
+        val dateStamp = Formatters.getCurrentDateFormatted().replace("-", "")
+        val timeStamp = (System.currentTimeMillis() % 10000).toString()
+        val fileName = customFileName ?: "Backup_SmartStock_Full_${dateStamp}_${timeStamp}.json"
+        val bytes = jsonString.toByteArray(Charsets.UTF_8)
+
+        val result = StorageLocationManager.writeBytesToPreferredStorage(context, fileName, "application/json", bytes)
+        result.second
     }
 
     /**

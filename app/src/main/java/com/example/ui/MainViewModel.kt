@@ -179,22 +179,120 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         return com.example.util.SecurityManager.verifyPin(getApplication(), pinInput)
     }
 
-    // --- Weekly Auto Backup States ---
+    // --- Storage Location Preference States ---
+    private val _storageLocationType = MutableStateFlow(com.example.util.StorageLocationManager.getStorageType(application))
+    val storageLocationType: StateFlow<String> = _storageLocationType.asStateFlow()
+
+    private val _customStorageFolderName = MutableStateFlow(com.example.util.StorageLocationManager.getCustomFolderName(application))
+    val customStorageFolderName: StateFlow<String> = _customStorageFolderName.asStateFlow()
+
+    private val _customStorageTreeUri = MutableStateFlow(com.example.util.StorageLocationManager.getCustomTreeUri(application))
+    val customStorageTreeUri: StateFlow<String?> = _customStorageTreeUri.asStateFlow()
+
+    private val _isDualCopyDownloads = MutableStateFlow(com.example.util.StorageLocationManager.isDualCopyDownloads(application))
+    val isDualCopyDownloads: StateFlow<Boolean> = _isDualCopyDownloads.asStateFlow()
+
+    private val _isAlwaysPromptSaveAs = MutableStateFlow(com.example.util.StorageLocationManager.isAlwaysPromptSaveAs(application))
+    val isAlwaysPromptSaveAs: StateFlow<Boolean> = _isAlwaysPromptSaveAs.asStateFlow()
+
+    private val _freeStorageSpace = MutableStateFlow(com.example.util.StorageLocationManager.getFreeSpaceFormatted(application))
+    val freeStorageSpace: StateFlow<String> = _freeStorageSpace.asStateFlow()
+
+    fun setStorageLocationType(type: String) {
+        _storageLocationType.value = type
+        com.example.util.StorageLocationManager.setStorageType(getApplication(), type)
+        refreshStorageState()
+    }
+
+    fun setCustomStorageFolder(uri: android.net.Uri?, folderName: String?) {
+        val uriStr = uri?.toString()
+        val name = folderName ?: if (uri != null) com.example.util.StorageLocationManager.getFolderNameFromUri(getApplication(), uri) else null
+        com.example.util.StorageLocationManager.setCustomFolder(getApplication(), uriStr, name)
+        if (uri != null) {
+            _storageLocationType.value = com.example.util.StorageLocationManager.STORAGE_CUSTOM_SAF
+            com.example.util.StorageLocationManager.setStorageType(getApplication(), com.example.util.StorageLocationManager.STORAGE_CUSTOM_SAF)
+        }
+        refreshStorageState()
+    }
+
+    fun setDualCopyDownloads(enabled: Boolean) {
+        _isDualCopyDownloads.value = enabled
+        com.example.util.StorageLocationManager.setDualCopyDownloads(getApplication(), enabled)
+    }
+
+    fun setAlwaysPromptSaveAs(enabled: Boolean) {
+        _isAlwaysPromptSaveAs.value = enabled
+        com.example.util.StorageLocationManager.setAlwaysPromptSaveAs(getApplication(), enabled)
+    }
+
+    fun refreshStorageState() {
+        _storageLocationType.value = com.example.util.StorageLocationManager.getStorageType(getApplication())
+        _customStorageFolderName.value = com.example.util.StorageLocationManager.getCustomFolderName(getApplication())
+        _customStorageTreeUri.value = com.example.util.StorageLocationManager.getCustomTreeUri(getApplication())
+        _isDualCopyDownloads.value = com.example.util.StorageLocationManager.isDualCopyDownloads(getApplication())
+        _isAlwaysPromptSaveAs.value = com.example.util.StorageLocationManager.isAlwaysPromptSaveAs(getApplication())
+        _freeStorageSpace.value = com.example.util.StorageLocationManager.getFreeSpaceFormatted(getApplication())
+    }
+
+    fun testStorageLocation(onResult: (Boolean, String) -> Unit) {
+        viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            val result = com.example.util.StorageLocationManager.testWriteToStorageLocation(getApplication())
+            refreshStorageState()
+            kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
+                onResult(result.first, result.second)
+            }
+        }
+    }
+
+    // --- 24-Hour Midnight Auto Backup States ---
     private val _isAutoBackupEnabled = MutableStateFlow(com.example.util.AutoBackupManager.isAutoBackupEnabled(application))
     val isAutoBackupEnabled: StateFlow<Boolean> = _isAutoBackupEnabled.asStateFlow()
+
+    private val _autoBackupFrequency = MutableStateFlow(com.example.util.AutoBackupManager.getAutoBackupFrequency(application))
+    val autoBackupFrequency: StateFlow<String> = _autoBackupFrequency.asStateFlow()
+
+    private val _autoBackupHour = MutableStateFlow(com.example.util.AutoBackupManager.getAutoBackupHour(application))
+    val autoBackupHour: StateFlow<Int> = _autoBackupHour.asStateFlow()
 
     private val _lastAutoBackupTime = MutableStateFlow(com.example.util.AutoBackupManager.getLastBackupTimestamp(application))
     val lastAutoBackupTime: StateFlow<Long> = _lastAutoBackupTime.asStateFlow()
 
+    private val _lastAutoBackupStatus = MutableStateFlow(com.example.util.AutoBackupManager.getLastBackupStatus(application))
+    val lastAutoBackupStatus: StateFlow<String> = _lastAutoBackupStatus.asStateFlow()
+
+    private val _nextScheduledBackupTime = MutableStateFlow(com.example.util.AutoBackupManager.getNextScheduledBackupFormatted(application))
+    val nextScheduledBackupTime: StateFlow<String> = _nextScheduledBackupTime.asStateFlow()
+
     fun setAutoBackupEnabled(enabled: Boolean) {
         _isAutoBackupEnabled.value = enabled
         com.example.util.AutoBackupManager.setAutoBackupEnabled(getApplication(), enabled)
+        refreshAutoBackupState()
+    }
+
+    fun setAutoBackupFrequency(freq: String) {
+        _autoBackupFrequency.value = freq
+        com.example.util.AutoBackupManager.setAutoBackupFrequency(getApplication(), freq)
+        refreshAutoBackupState()
+    }
+
+    fun setAutoBackupHour(hour: Int) {
+        _autoBackupHour.value = hour
+        com.example.util.AutoBackupManager.setAutoBackupHour(getApplication(), hour)
+        refreshAutoBackupState()
+    }
+
+    fun refreshAutoBackupState() {
+        _lastAutoBackupTime.value = com.example.util.AutoBackupManager.getLastBackupTimestamp(getApplication())
+        _lastAutoBackupStatus.value = com.example.util.AutoBackupManager.getLastBackupStatus(getApplication())
+        _nextScheduledBackupTime.value = com.example.util.AutoBackupManager.getNextScheduledBackupFormatted(getApplication())
     }
 
     fun runAutoBackupNow(onResult: (String) -> Unit) {
         viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
             val msg = com.example.util.AutoBackupManager.performAutoBackup(getApplication(), db)
             _lastAutoBackupTime.value = com.example.util.AutoBackupManager.getLastBackupTimestamp(getApplication())
+            _lastAutoBackupStatus.value = com.example.util.AutoBackupManager.getLastBackupStatus(getApplication())
+            _nextScheduledBackupTime.value = com.example.util.AutoBackupManager.getNextScheduledBackupFormatted(getApplication())
             kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
                 onResult(msg)
             }
