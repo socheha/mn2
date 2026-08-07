@@ -188,6 +188,104 @@ fun MenuPengaturanScreen(viewModel: MainViewModel) {
 
         Spacer(modifier = Modifier.height(14.dp))
 
+        // --- 0. CARD PERLINDUNGAN & PEMULIHAN DATA SEBELUM UPDATE ---
+        Card(
+            modifier = Modifier.fillMaxWidth().testTag("card_pemulihan_data_update"),
+            shape = RoundedCornerShape(16.dp),
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.35f)),
+            elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+        ) {
+            Column(modifier = Modifier.padding(16.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(
+                        imageVector = Icons.Default.Security,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(24.dp)
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Column {
+                        Text(
+                            text = "Pemulihan Data & Anti Hilang Saat Update",
+                            fontSize = 16.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                        Text(
+                            text = "Status: Terlindungi (Room Migration & Auto Snapshot Aktif)",
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            color = Color(0xFF2E7D32)
+                        )
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(8.dp))
+                Text(
+                    text = "Jika data Anda sebelumnya sempat tereset saat memperbarui aplikasi, Anda dapat memulihkannya kembali secara otomatis dalam 1 kali klik dari snapshot cadangan sistem.",
+                    fontSize = 12.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+
+                Spacer(modifier = Modifier.height(12.dp))
+
+                // Tombol Pulihkan Data Sebelum Update
+                Button(
+                    onClick = {
+                        isProcessing = true
+                        viewModel.restoreFromLatestAutoSnapshot { success, msg ->
+                            isProcessing = false
+                            Toast.makeText(context, msg, Toast.LENGTH_LONG).show()
+                        }
+                    },
+                    modifier = Modifier.fillMaxWidth().testTag("btn_restore_pre_update"),
+                    shape = RoundedCornerShape(10.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
+                ) {
+                    Icon(Icons.Default.Restore, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(
+                        text = if (isProcessing) "Memulihkan Data..." else "Kembalikan Data Sebelum Update (Auto Recovery)",
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+
+                Spacer(modifier = Modifier.height(8.dp))
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    OutlinedButton(
+                        onClick = { showAutoBackupListDialog = true },
+                        modifier = Modifier.weight(1f),
+                        shape = RoundedCornerShape(10.dp)
+                    ) {
+                        Icon(Icons.Default.Folder, contentDescription = null, modifier = Modifier.size(16.dp))
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text("Pilih Cadangan", fontSize = 12.sp)
+                    }
+
+                    OutlinedButton(
+                        onClick = {
+                            viewModel.loadStandardSampleStoreData { success, msg ->
+                                Toast.makeText(context, msg, Toast.LENGTH_LONG).show()
+                            }
+                        },
+                        modifier = Modifier.weight(1f),
+                        shape = RoundedCornerShape(10.dp)
+                    ) {
+                        Icon(Icons.Default.Backup, contentDescription = null, modifier = Modifier.size(16.dp))
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text("Data Standar Toko", fontSize = 12.sp)
+                    }
+                }
+            }
+        }
+
+        Spacer(modifier = Modifier.height(14.dp))
+
         // --- 1. DARK MODE & TEMA CARD ---
         Card(
             modifier = Modifier.fillMaxWidth(),
@@ -822,19 +920,19 @@ fun MenuPengaturanScreen(viewModel: MainViewModel) {
 
     // --- DIALOG AUTO BACKUP FILES LIST ---
     if (showAutoBackupListDialog) {
-        val files = remember { viewModel.getLocalAutoBackupFiles() }
+        val files = remember { viewModel.getAllRecoveryFiles() }
         AlertDialog(
             onDismissRequest = { showAutoBackupListDialog = false },
             title = {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Icon(Icons.Default.Folder, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
                     Spacer(modifier = Modifier.width(8.dp))
-                    Text("File Backup Otomatis Lokal", fontWeight = FontWeight.Bold, fontSize = 16.sp)
+                    Text("Cadangan & Snapshot Sistem", fontWeight = FontWeight.Bold, fontSize = 16.sp)
                 }
             },
             text = {
                 if (files.isEmpty()) {
-                    Text("Belum ada file backup otomatis yang tersimpan di memori hp.", fontSize = 13.sp)
+                    Text("Belum ada file cadangan yang tersimpan di memori internal.", fontSize = 13.sp)
                 } else {
                     LazyColumn(modifier = Modifier.height(260.dp)) {
                         items(files) { file ->

@@ -34,8 +34,13 @@ import androidx.compose.material.icons.filled.SwapHoriz
 import androidx.compose.material.icons.filled.AccountBalanceWallet
 import androidx.compose.material.icons.filled.PointOfSale
 import androidx.compose.material.icons.filled.Inventory
+import androidx.compose.material.icons.filled.Sync
+import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.ArrowForward
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
@@ -89,11 +94,15 @@ fun MenuRekapScreen(
     val incomingTransactions by viewModel.allIncomingTransactions.collectAsStateWithLifecycle()
     val stockHistoryList by viewModel.allStockHistory.collectAsStateWithLifecycle()
     val cashMutationsList by viewModel.allCashMutations.collectAsStateWithLifecycle()
+    val allTransactionLogs by viewModel.allTransactionLogs.collectAsStateWithLifecycle()
 
-    var selectedCategoryFilter by remember { mutableStateOf("Semua") } // "Semua", "Penjualan", "Perpindahan Stok", "Kas", "Barang Masuk"
+    var selectedCategoryFilter by remember { mutableStateOf("Semua") } // "Semua", "Penjualan", "Perpindahan Stok", "Kas", "Barang Masuk", "Log Status"
     var activePreset by remember { mutableStateOf("Harian") } // "Harian", "Mingguan", "Bulanan", "Tahunan", "Kustom"
-    var selectedTabIndex by remember { mutableStateOf(0) } // 0: Nota Penjualan, 1: Barang Terjual, 2: Perpindahan Stok, 3: Kas & Mutasi, 4: Barang Masuk
+    var selectedTabIndex by remember { mutableStateOf(0) } // 0: Nota Penjualan, 1: Barang Terjual, 2: Perpindahan Stok, 3: Kas & Mutasi, 4: Barang Masuk, 5: Log Status & Sinkron
     var searchQuery by remember { mutableStateOf("") }
+    var logStatusFilter by remember { mutableStateOf("Semua") }
+    var syncMessage by remember { mutableStateOf<String?>(null) }
+    var isSyncing by remember { mutableStateOf(false) }
 
     var selectedTransactionForDetail by remember { mutableStateOf<SalesTransactionEntity?>(null) }
     var selectedIncomingForDetail by remember { mutableStateOf<IncomingTransactionEntity?>(null) }
@@ -153,6 +162,23 @@ fun MenuRekapScreen(
                     mutation.accountType.contains(searchQuery, ignoreCase = true) ||
                     mutation.jenis.contains(searchQuery, ignoreCase = true)
             inRange && matchesSearch
+        }
+    }
+
+    val filteredTransactionLogs = remember(allTransactionLogs, startDate, endDate, searchQuery, logStatusFilter) {
+        allTransactionLogs.filter { log ->
+            val inRange = log.tanggal >= startDate && log.tanggal <= endDate
+            val matchesSearch = searchQuery.isBlank() ||
+                    log.referenceNumber.contains(searchQuery, ignoreCase = true) ||
+                    log.transactionType.contains(searchQuery, ignoreCase = true) ||
+                    log.previousStatus.contains(searchQuery, ignoreCase = true) ||
+                    log.newStatus.contains(searchQuery, ignoreCase = true) ||
+                    log.keterangan.contains(searchQuery, ignoreCase = true) ||
+                    log.accountType.contains(searchQuery, ignoreCase = true) ||
+                    log.actionType.contains(searchQuery, ignoreCase = true)
+            val matchesFilter = if (logStatusFilter == "Semua") true
+            else log.actionType.equals(logStatusFilter, ignoreCase = true) || log.newStatus.contains(logStatusFilter, ignoreCase = true)
+            inRange && matchesSearch && matchesFilter
         }
     }
 
@@ -492,7 +518,8 @@ fun MenuRekapScreen(
                             "Penjualan" to "Penjualan",
                             "Perpindahan Stok" to "Perpindahan Stok",
                             "Kas" to "Kas & Mutasi",
-                            "Barang Masuk" to "Barang Masuk"
+                            "Barang Masuk" to "Barang Masuk",
+                            "Log Status" to "Log Status & Sinkron"
                         )
                         items(categories) { (key, label) ->
                             val isSelected = selectedCategoryFilter == key
@@ -505,6 +532,7 @@ fun MenuRekapScreen(
                                         "Perpindahan Stok" -> selectedTabIndex = 2
                                         "Kas" -> selectedTabIndex = 3
                                         "Barang Masuk" -> selectedTabIndex = 4
+                                        "Log Status" -> selectedTabIndex = 5
                                         else -> selectedTabIndex = 0
                                     }
                                 },
@@ -515,6 +543,7 @@ fun MenuRekapScreen(
                                         "Perpindahan Stok" -> Icons.Default.SwapHoriz
                                         "Kas" -> Icons.Default.AccountBalanceWallet
                                         "Barang Masuk" -> Icons.Default.Inventory
+                                        "Log Status" -> Icons.Default.Sync
                                         else -> Icons.Default.Assessment
                                     }
                                     Icon(icon, contentDescription = null, modifier = Modifier.size(16.dp))
@@ -540,12 +569,14 @@ fun MenuRekapScreen(
                         "Perpindahan Stok" -> listOf(2 to "Perpindahan Stok (${filteredStockHistory.size})")
                         "Kas" -> listOf(3 to "Kas & Mutasi (${filteredCashMutations.size})")
                         "Barang Masuk" -> listOf(4 to "Barang Masuk (${filteredIncomingTransactions.size})")
+                        "Log Status" -> listOf(5 to "Log Status & Sinkron (${filteredTransactionLogs.size})")
                         else -> listOf(
                             0 to "Nota (${filteredTransactions.size})",
                             1 to "Terjual (${filteredSoldItems.size})",
                             2 to "Stok (${filteredStockHistory.size})",
                             3 to "Kas (${filteredCashMutations.size})",
-                            4 to "Masuk (${filteredIncomingTransactions.size})"
+                            4 to "Masuk (${filteredIncomingTransactions.size})",
+                            5 to "Log Status (${filteredTransactionLogs.size})"
                         )
                     }
 
@@ -922,7 +953,7 @@ fun MenuRekapScreen(
                         }
                     }
                 }
-            } else {
+            } else if (selectedTabIndex == 4) {
                 // Tab 4: Rekapan Barang Masuk (Faktur Supplier)
                 if (filteredIncomingTransactions.isEmpty()) {
                     item {
@@ -1012,6 +1043,311 @@ fun MenuRekapScreen(
                                         contentDescription = null,
                                         tint = MaterialTheme.colorScheme.outline
                                     )
+                                }
+                            }
+                        }
+                    }
+                }
+            } else if (selectedTabIndex == 5) {
+                // Tab 5: Detailed Transaction History Log & Balance Synchronization
+                item {
+                    Card(
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(14.dp),
+                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+                    ) {
+                        Column(modifier = Modifier.padding(16.dp)) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
+                                    Box(
+                                        modifier = Modifier
+                                            .size(36.dp)
+                                            .clip(CircleShape)
+                                            .background(Color(0xFFEDE7F6)),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.Sync,
+                                            contentDescription = null,
+                                            tint = Color(0xFF512DA8),
+                                            modifier = Modifier.size(20.dp)
+                                        )
+                                    }
+                                    Spacer(modifier = Modifier.width(10.dp))
+                                    Column {
+                                        Text(
+                                            text = "Log Riwayat Status & Sinkronisasi",
+                                            fontWeight = FontWeight.Bold,
+                                            fontSize = 14.sp,
+                                            color = Color(0xFF311B92)
+                                        )
+                                        Text(
+                                            text = "Audit status transaksi (Pending, Lunas, Dibatalkan) & sinkron saldo",
+                                            fontSize = 11.sp,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                    }
+                                }
+
+                                Button(
+                                    onClick = {
+                                        isSyncing = true
+                                        viewModel.synchronizeAndVerifyBalances { msg ->
+                                            isSyncing = false
+                                            syncMessage = msg
+                                        }
+                                    },
+                                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF512DA8)),
+                                    shape = RoundedCornerShape(10.dp),
+                                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
+                                ) {
+                                    Icon(imageVector = Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(16.dp))
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Text(if (isSyncing) "Audit..." else "Sinkronkan", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                                }
+                            }
+
+                            syncMessage?.let { msg ->
+                                Spacer(modifier = Modifier.height(10.dp))
+                                Surface(
+                                    shape = RoundedCornerShape(8.dp),
+                                    color = Color(0xFFE8F5E9),
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    Row(
+                                        modifier = Modifier.padding(10.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.SpaceBetween
+                                    ) {
+                                        Text(
+                                            text = msg,
+                                            fontSize = 11.sp,
+                                            fontWeight = FontWeight.SemiBold,
+                                            color = Color(0xFF1B5E20),
+                                            modifier = Modifier.weight(1f)
+                                        )
+                                        IconButton(onClick = { syncMessage = null }, modifier = Modifier.size(20.dp)) {
+                                            Icon(Icons.Default.Close, contentDescription = "Tutup", tint = Color(0xFF1B5E20), modifier = Modifier.size(14.dp))
+                                        }
+                                    }
+                                }
+                            }
+
+                            Spacer(modifier = Modifier.height(12.dp))
+
+                            // Filter Chips for Log Action Types
+                            LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                val logFilters = listOf(
+                                    "Semua" to "Semua Log",
+                                    "CREATED" to "Baru Dibuat",
+                                    "UPDATED" to "Diedit",
+                                    "CANCELLED" to "Dibatalkan",
+                                    "SYNC_BALANCE" to "Sinkron Saldo"
+                                )
+                                items(logFilters) { (code, label) ->
+                                    val isSel = logStatusFilter == code
+                                    FilterChip(
+                                        selected = isSel,
+                                        onClick = { logStatusFilter = code },
+                                        label = { Text(label, fontSize = 11.sp, fontWeight = if (isSel) FontWeight.Bold else FontWeight.Normal) },
+                                        colors = FilterChipDefaults.filterChipColors(
+                                            selectedContainerColor = Color(0xFFEDE7F6),
+                                            selectedLabelColor = Color(0xFF512DA8)
+                                        )
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+
+                if (filteredTransactionLogs.isEmpty()) {
+                    item {
+                        Card(
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(12.dp),
+                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+                        ) {
+                            Text(
+                                text = "Tidak ada catatan log riwayat status pada rentang tanggal atau filter ini.",
+                                modifier = Modifier.padding(16.dp),
+                                fontSize = 13.sp,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+                } else {
+                    items(filteredTransactionLogs, key = { it.id }) { log ->
+                        val actionColor = when (log.actionType) {
+                            "CREATED" -> Color(0xFF2E7D32)
+                            "UPDATED" -> Color(0xFF1565C0)
+                            "CANCELLED" -> Color(0xFFD32F2F)
+                            "SYNC_BALANCE" -> Color(0xFF7B1FA2)
+                            else -> MaterialTheme.colorScheme.primary
+                        }
+
+                        val actionBg = when (log.actionType) {
+                            "CREATED" -> Color(0xFFE8F5E9)
+                            "UPDATED" -> Color(0xFFE3F2FD)
+                            "CANCELLED" -> Color(0xFFFFEBEE)
+                            "SYNC_BALANCE" -> Color(0xFFEDE7F6)
+                            else -> MaterialTheme.colorScheme.primaryContainer
+                        }
+
+                        Card(
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(12.dp),
+                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                            elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
+                        ) {
+                            Column(modifier = Modifier.padding(14.dp)) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        Surface(
+                                            shape = RoundedCornerShape(4.dp),
+                                            color = actionBg,
+                                            modifier = Modifier.padding(end = 6.dp)
+                                        ) {
+                                            Text(
+                                                text = log.actionType,
+                                                style = MaterialTheme.typography.labelSmall,
+                                                fontWeight = FontWeight.Bold,
+                                                color = actionColor,
+                                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                            )
+                                        }
+
+                                        Surface(
+                                            shape = RoundedCornerShape(4.dp),
+                                            color = MaterialTheme.colorScheme.surfaceVariant,
+                                            modifier = Modifier.padding(end = 6.dp)
+                                        ) {
+                                            Text(
+                                                text = log.transactionType,
+                                                fontSize = 10.sp,
+                                                fontWeight = FontWeight.SemiBold,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp)
+                                            )
+                                        }
+
+                                        Text(
+                                            text = "Ref: ${log.referenceNumber}",
+                                            fontWeight = FontWeight.Bold,
+                                            fontSize = 12.sp,
+                                            color = MaterialTheme.colorScheme.onSurface
+                                        )
+                                    }
+
+                                    Text(
+                                        text = log.tanggal,
+                                        fontSize = 11.sp,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+
+                                Spacer(modifier = Modifier.height(6.dp))
+
+                                // Status Change Transition
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Text(
+                                        text = "Status: ",
+                                        fontSize = 11.sp,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                    if (log.previousStatus.isNotBlank()) {
+                                        Surface(
+                                            shape = RoundedCornerShape(4.dp),
+                                            color = MaterialTheme.colorScheme.surfaceVariant
+                                        ) {
+                                            Text(
+                                                text = log.previousStatus,
+                                                fontSize = 10.sp,
+                                                modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp)
+                                            )
+                                        }
+                                        Icon(
+                                            imageVector = Icons.Default.ArrowForward,
+                                            contentDescription = null,
+                                            modifier = Modifier.size(12.dp).padding(horizontal = 2.dp),
+                                            tint = MaterialTheme.colorScheme.outline
+                                        )
+                                    }
+                                    Surface(
+                                        shape = RoundedCornerShape(4.dp),
+                                        color = actionBg
+                                    ) {
+                                        Text(
+                                            text = log.newStatus,
+                                            fontSize = 11.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            color = actionColor,
+                                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 1.dp)
+                                        )
+                                    }
+
+                                    Spacer(modifier = Modifier.weight(1f))
+
+                                    if (log.nominal != 0.0) {
+                                        Text(
+                                            text = Formatters.formatRupiah(log.nominal),
+                                            fontWeight = FontWeight.Bold,
+                                            fontSize = 13.sp,
+                                            color = actionColor
+                                        )
+                                    }
+                                }
+
+                                // Balance Impact & Account info
+                                if (log.accountType.isNotBlank()) {
+                                    Spacer(modifier = Modifier.height(4.dp))
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Text(
+                                            text = "Akun: ${log.accountType}",
+                                            fontSize = 11.sp,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                        if (log.balanceBefore != 0.0 || log.balanceAfter != 0.0) {
+                                            Text(
+                                                text = "Saldo: ${Formatters.formatRupiah(log.balanceBefore)} ➔ ${Formatters.formatRupiah(log.balanceAfter)}",
+                                                fontSize = 11.sp,
+                                                fontWeight = FontWeight.SemiBold,
+                                                color = Color(0xFF1565C0)
+                                            )
+                                        }
+                                    }
+                                }
+
+                                if (log.keterangan.isNotBlank()) {
+                                    Spacer(modifier = Modifier.height(6.dp))
+                                    Surface(
+                                        shape = RoundedCornerShape(6.dp),
+                                        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                                        modifier = Modifier.fillMaxWidth()
+                                    ) {
+                                        Text(
+                                            text = log.keterangan,
+                                            fontSize = 11.sp,
+                                            modifier = Modifier.padding(8.dp),
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                    }
                                 }
                             }
                         }

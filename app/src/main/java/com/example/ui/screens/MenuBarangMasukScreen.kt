@@ -51,6 +51,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -409,6 +410,43 @@ fun MenuBarangMasukScreen(
                                     singleLine = true,
                                     modifier = Modifier.weight(1f)
                                 )
+                            }
+
+                            // Price Averaging Indicator Banner
+                            if (cartItem.item.hargaModal > 0.0 && cartItem.hargaModal > 0.0 && cartItem.hargaModal != cartItem.item.hargaModal) {
+                                val avgPrice = (cartItem.item.hargaModal + cartItem.hargaModal) / 2.0
+                                Spacer(modifier = Modifier.height(6.dp))
+                                Surface(
+                                    shape = RoundedCornerShape(8.dp),
+                                    color = Color(0xFFFFF3E0),
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    Row(
+                                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.SpaceBetween
+                                    ) {
+                                        Column(modifier = Modifier.weight(1f)) {
+                                            Text(
+                                                text = "⚖️ Harga beda dari database (Rp ${cartItem.item.hargaModal.toInt()})",
+                                                fontSize = 11.sp,
+                                                fontWeight = FontWeight.SemiBold,
+                                                color = Color(0xFFE65100)
+                                            )
+                                            Text(
+                                                text = "Otomatis dihitung rata-rata / pertengahan: ${Formatters.formatRupiah(avgPrice)}",
+                                                fontSize = 10.sp,
+                                                color = Color(0xFFBF360C)
+                                            )
+                                        }
+                                        TextButton(
+                                            onClick = { viewModel.applyAverageCostForIncomingItem(cartItem.item.id) },
+                                            contentPadding = PaddingValues(horizontal = 6.dp, vertical = 0.dp)
+                                        ) {
+                                            Text("Terapkan Rata2", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = Color(0xFFE65100))
+                                        }
+                                    }
+                                }
                             }
 
                             Spacer(modifier = Modifier.height(6.dp))

@@ -60,10 +60,24 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val supplierPayableDao = db.supplierPayableDao()
     private val cashDao = db.cashDao()
     private val syncQueueDao = db.syncQueueDao()
+    private val transactionHistoryDao = db.transactionHistoryDao()
+
+    val allTransactionLogs: StateFlow<List<com.example.data.entity.TransactionHistoryLogEntity>> = transactionHistoryDao.getAllLogs()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     init {
-        // Automatic weekly backup check on app startup
+        // Automatic startup recovery check & continuous snapshot
         viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            val existingItems = itemDao.getAllItemsList()
+            if (existingItems.isEmpty()) {
+                // If tables are empty after an app update, attempt to auto-recover from local snapshot
+                com.example.util.AppBackupUtils.restoreFromLatestAutoSnapshot(application, db)
+            } else {
+                // Keep continuous pre-update snapshot fresh
+                com.example.util.AppBackupUtils.saveContinuousSnapshot(application, db)
+            }
+
+            // Automatic weekly backup check on app startup
             val autoBackupMsg = com.example.util.AutoBackupManager.checkAndPerformWeeklyAutoBackup(application, db)
             if (autoBackupMsg != null) {
                 _lastAutoBackupTime.value = com.example.util.AutoBackupManager.getLastBackupTimestamp(application)
@@ -913,8 +927,58 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         _incomingCart.value = current
     }
 
+    fun applyAverageCostForIncomingItem(itemId: Long) {
+        val current = _incomingCart.value.toMutableList()
+        val index = current.indexOfFirst { it.item.id == itemId }
+        if (index != -1) {
+            val cartItem = current[index]
+            if (cartItem.item.hargaModal > 0.0 && cartItem.hargaModal > 0.0) {
+                val avg = (cartItem.item.hargaModal + cartItem.hargaModal) / 2.0
+                current[index] = cartItem.copy(hargaModal = avg)
+                _incomingCart.value = current
+            }
+        }
+    }
+
     fun clearIncomingCart() {
         _incomingCart.value = emptyList()
+    }
+
+    suspend fun recordTransactionLogDirect(
+        type: String,
+        txId: Long,
+        ref: String,
+        action: String,
+        prevStatus: String,
+        newStatus: String,
+        nominal: Double,
+        accountType: String,
+        balBefore: Double,
+        balAfter: Double,
+        note: String,
+        syncStatus: String = "SYNCED",
+        date: String = Formatters.getCurrentDateFormatted()
+    ) {
+        try {
+            val log = com.example.data.entity.TransactionHistoryLogEntity(
+                tanggal = date,
+                transactionType = type,
+                transactionId = txId,
+                referenceNumber = ref,
+                actionType = action,
+                previousStatus = prevStatus,
+                newStatus = newStatus,
+                nominal = nominal,
+                accountType = accountType,
+                balanceBefore = balBefore,
+                balanceAfter = balAfter,
+                keterangan = note,
+                syncStatus = syncStatus
+            )
+            transactionHistoryDao.insertLog(log)
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
     }
 
     fun processScannedIncomingReceipt(
@@ -1053,17 +1117,32 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                             stokCabang = newCabang,
                             totalStok = totalS
                         )
-                        if (cartItem.hargaModal > 0) {
+
+                        // Calculate average cost price if entered price differs from database
+                        val finalHargaModal = if (currentItem.hargaModal > 0.0 && cartItem.hargaModal > 0.0 && cartItem.hargaModal != currentItem.hargaModal) {
+                            (currentItem.hargaModal + cartItem.hargaModal) / 2.0
+                        } else if (cartItem.hargaModal > 0.0) {
+                            cartItem.hargaModal
+                        } else {
+                            currentItem.hargaModal
+                        }
+
+                        if (finalHargaModal > 0) {
                             itemDao.updateItem(
                                 currentItem.copy(
                                     stokTokoUtama = newUtama,
                                     stokTokoCabang = newCabang,
                                     stok = totalS,
-                                    hargaModal = cartItem.hargaModal,
+                                    hargaModal = finalHargaModal,
                                     updatedAt = System.currentTimeMillis()
                                 )
                             )
                         }
+
+                        val avgNote = if (currentItem.hargaModal > 0.0 && cartItem.hargaModal > 0.0 && cartItem.hargaModal != currentItem.hargaModal) {
+                            " (HPP Rata-rata: Rp ${finalHargaModal.toInt()} dari Rp ${currentItem.hargaModal.toInt()} & Rp ${cartItem.hargaModal.toInt()})"
+                        } else ""
+
                         stockHistoryDao.insertHistory(
                             StockHistoryEntity(
                                 itemId = cartItem.item.id,
@@ -1073,13 +1152,19 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                                 stokAwal = stokAwal,
                                 stokAkhir = totalS,
                                 jenis = "Barang Masuk",
-                                keterangan = "Faktur: ${fakturNumber.ifBlank { "Supplier $supplierName" }}"
+                                keterangan = "Faktur: ${fakturNumber.ifBlank { "Supplier $supplierName" }}$avgNote"
                             )
                         )
                     }
                 }
 
-                // Handle Cash Deduction or Supplier Payable
+                // Handle Cash Deduction or Supplier Payable & Track Balances
+                val primaryAccCode = if (statusPembayaran == "Tunai") "TUNAI"
+                else if (targetAccountCode.isNotBlank() && targetAccountCode != "TUNAI") targetAccountCode
+                else "BANK"
+
+                val accBefore = cashDao.getAccountDirect(primaryAccCode)?.saldo ?: 0.0
+
                 if (statusPembayaran.contains("Tunai & Transfer") || (nominalTunaiSplit > 0 && nominalTransferSplit > 0)) {
                     val bankAccount = if (targetAccountCode.isNotBlank() && targetAccountCode != "TUNAI") targetAccountCode else "BANK"
                     val bankName = com.example.data.entity.CashAccountDefaults.getAccountName(bankAccount)
@@ -1130,6 +1215,24 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     )
                     supplierPayableDao.insertPayable(payable)
                 }
+
+                val accAfter = cashDao.getAccountDirect(primaryAccCode)?.saldo ?: 0.0
+
+                // Record Transaction Status History Log
+                recordTransactionLogDirect(
+                    type = "Barang Masuk",
+                    txId = txId,
+                    ref = if (fakturNumber.isNotBlank()) fakturNumber.trim() else "BM-#$txId",
+                    action = "CREATED",
+                    prevStatus = "Draft",
+                    newStatus = if (statusPembayaran == "Hutang") "Belum Lunas" else "Completed",
+                    nominal = totalNilai,
+                    accountType = if (statusPembayaran == "Hutang") "HUTANG" else primaryAccCode,
+                    balBefore = accBefore,
+                    balAfter = accAfter,
+                    note = "Barang Masuk #$txId dari $supplierName ($statusPembayaran)",
+                    date = tanggal
+                )
 
                 kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
                     clearIncomingCart()
@@ -1448,6 +1551,21 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         )
                     }
                 }
+
+                recordTransactionLogDirect(
+                    type = "Penjualan ($selectedStore)",
+                    txId = txId,
+                    ref = "PJ-#$txId",
+                    action = "CREATED",
+                    prevStatus = "Draft",
+                    newStatus = if (isPiutang && finalMoney > uangMuka) "Belum Lunas" else "Completed",
+                    nominal = finalMoney,
+                    accountType = if (isPiutang) "PIUTANG" else if (metodePembayaran.startsWith("Transfer")) "BANK" else "TUNAI",
+                    balBefore = 0.0,
+                    balAfter = finalMoney,
+                    note = "Nota Penjualan #$txId $selectedStore ($metodePembayaran) - $fullCatatan",
+                    date = tanggal
+                )
 
                 kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
                     clearSalesCart()
@@ -2187,6 +2305,22 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
             incomingDao.deleteItemsForTransaction(transactionId)
             incomingDao.deleteTransaction(transactionId)
+
+            // Record cancellation in transaction history log
+            recordTransactionLogDirect(
+                type = "Barang Masuk",
+                txId = transaction.id,
+                ref = if (transaction.nomorFaktur.isNotBlank()) transaction.nomorFaktur else "BM-#${transaction.id}",
+                action = "CANCELLED",
+                prevStatus = transaction.statusPembayaran,
+                newStatus = "Dibatalkan",
+                nominal = transaction.totalNilai,
+                accountType = if (transaction.statusPembayaran == "Hutang") "HUTANG" else "KAS/BANK",
+                balBefore = transaction.totalNilai,
+                balAfter = 0.0,
+                note = "Pembatalan transaksi barang masuk #${transaction.id} (${transaction.namaSupplier}) - Saldo & Stok disinkronkan kembali",
+                date = transaction.tanggal
+            )
             onSuccess?.invoke()
         }
     }
@@ -2224,7 +2358,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 }
             }
 
-            // 2. Apply stock for new/updated items and save item records
+            // 2. Apply stock for new/updated items and calculate weighted/average price if changed
             val itemsToSave = updatedItems ?: oldItems
             itemsToSave.forEach { newItem ->
                 val product = itemDao.getItemById(newItem.itemId)
@@ -2241,17 +2375,29 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         totalStok = totalS
                     )
 
-                    if (newItem.hargaModal > 0) {
+                    val finalHargaModal = if (product.hargaModal > 0.0 && newItem.hargaModal > 0.0 && newItem.hargaModal != product.hargaModal) {
+                        (product.hargaModal + newItem.hargaModal) / 2.0
+                    } else if (newItem.hargaModal > 0.0) {
+                        newItem.hargaModal
+                    } else {
+                        product.hargaModal
+                    }
+
+                    if (finalHargaModal > 0) {
                         itemDao.updateItem(
                             product.copy(
                                 stokTokoUtama = newUtama,
                                 stokTokoCabang = oldCabang,
                                 stok = totalS,
-                                hargaModal = newItem.hargaModal,
+                                hargaModal = finalHargaModal,
                                 updatedAt = System.currentTimeMillis()
                             )
                         )
                     }
+
+                    val avgNote = if (product.hargaModal > 0.0 && newItem.hargaModal > 0.0 && newItem.hargaModal != product.hargaModal) {
+                        " (HPP Rata-rata: Rp ${finalHargaModal.toInt()} dari Rp ${product.hargaModal.toInt()} & Rp ${newItem.hargaModal.toInt()})"
+                    } else ""
 
                     stockHistoryDao.insertHistory(
                         com.example.data.entity.StockHistoryEntity(
@@ -2262,7 +2408,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                             stokAwal = product.totalStokCombined,
                             stokAkhir = totalS,
                             jenis = "Edit Barang Masuk",
-                            keterangan = "Perubahan Transaksi Barang Masuk #${oldTx.id}",
+                            keterangan = "Perubahan Transaksi Barang Masuk #${oldTx.id}$avgNote",
                             namaToko = "Toko Utama"
                         )
                     )
@@ -2376,7 +2522,107 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 catatan = newCatatan
             )
             incomingDao.insertTransactionDirect(updatedTx)
+
+            // Record update in transaction history log
+            recordTransactionLogDirect(
+                type = "Barang Masuk",
+                txId = oldTx.id,
+                ref = if (newFakturNumber.isNotBlank()) newFakturNumber else oldTx.nomorFaktur.ifBlank { "BM-#${oldTx.id}" },
+                action = "UPDATED",
+                prevStatus = oldTx.statusPembayaran,
+                newStatus = newStatusPembayaran,
+                nominal = newTotalNilai,
+                accountType = if (newStatusPembayaran == "Hutang") "HUTANG" else newTargetAccountCode.ifBlank { "KAS/BANK" },
+                balBefore = oldTx.totalNilai,
+                balAfter = newTotalNilai,
+                note = "Pembaruan data transaksi barang masuk #${oldTx.id} dari $newSupplier ($newStatusPembayaran)",
+                date = newTanggal
+            )
             onSuccess?.invoke()
+        }
+    }
+
+    fun synchronizeAndVerifyBalances(onComplete: (String) -> Unit) {
+        viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            try {
+                var fixedPayables = 0
+                val payables = supplierPayableDao.getAllPayablesList()
+                for (p in payables) {
+                    val payments = supplierPayableDao.getPaymentsByPayableList(p.id)
+                    val totalPaid = payments.sumOf { it.nominalBayar }
+                    val calculatedSisa = (p.nominalAwal - totalPaid).coerceAtLeast(0.0)
+                    val expectedStatus = if (calculatedSisa <= 0.0) "Lunas" else "Belum Lunas"
+                    if (p.nominalSisa != calculatedSisa || p.status != expectedStatus) {
+                        supplierPayableDao.insertPayable(p.copy(nominalSisa = calculatedSisa, status = expectedStatus))
+                        fixedPayables++
+                        recordTransactionLogDirect(
+                            type = "Hutang Supplier",
+                            txId = p.id,
+                            ref = "HUTANG-#${p.id}",
+                            action = "SYNC_BALANCE",
+                            prevStatus = p.status,
+                            newStatus = expectedStatus,
+                            nominal = calculatedSisa,
+                            accountType = "HUTANG",
+                            balBefore = p.nominalSisa,
+                            balAfter = calculatedSisa,
+                            note = "Sinkronisasi saldo sisa hutang ${p.namaSupplier} (Total Bayar: Rp ${totalPaid.toInt()})"
+                        )
+                    }
+                }
+
+                var fixedReceivables = 0
+                val receivables = customerReceivableDao.getAllReceivablesList()
+                for (r in receivables) {
+                    val payments = customerReceivableDao.getPaymentsByReceivableList(r.id)
+                    val totalPaid = payments.sumOf { it.nominalBayar }
+                    val calculatedSisa = (r.nominalAwal - totalPaid).coerceAtLeast(0.0)
+                    val expectedStatus = if (calculatedSisa <= 0.0) "Lunas" else "Belum Lunas"
+                    if (r.nominalSisa != calculatedSisa || r.status != expectedStatus) {
+                        customerReceivableDao.insertReceivable(r.copy(nominalSisa = calculatedSisa, status = expectedStatus))
+                        fixedReceivables++
+                        recordTransactionLogDirect(
+                            type = "Piutang Pelanggan",
+                            txId = r.id,
+                            ref = "PIUTANG-#${r.id}",
+                            action = "SYNC_BALANCE",
+                            prevStatus = r.status,
+                            newStatus = expectedStatus,
+                            nominal = calculatedSisa,
+                            accountType = "PIUTANG",
+                            balBefore = r.nominalSisa,
+                            balAfter = calculatedSisa,
+                            note = "Sinkronisasi saldo sisa piutang ${r.namaPelanggan} (Total Bayar: Rp ${totalPaid.toInt()})"
+                        )
+                    }
+                }
+
+                val currentCash = cashDao.getAccountDirect("TUNAI")?.saldo ?: 0.0
+                val currentBank = cashDao.getAccountDirect("BANK")?.saldo ?: 0.0
+                recordTransactionLogDirect(
+                    type = "Kas & Bank",
+                    txId = 0L,
+                    ref = "SYNC-ALL",
+                    action = "SYNC_BALANCE",
+                    prevStatus = "Audit",
+                    newStatus = "Sinkron",
+                    nominal = currentCash + currentBank,
+                    accountType = "ALL",
+                    balBefore = currentCash,
+                    balAfter = currentBank,
+                    note = "Audit & Sinkronisasi Saldo Sukses. Saldo Kas: Rp ${currentCash.toInt()}, Saldo Bank: Rp ${currentBank.toInt()}"
+                )
+
+                val summaryMsg = "Sinkronisasi selesai! $fixedPayables hutang & $fixedReceivables piutang telah diverifikasi 100% akurat."
+                kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
+                    onComplete(summaryMsg)
+                }
+            } catch (e: Exception) {
+                e.printStackTrace()
+                kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
+                    onComplete("Sinkronisasi gagal: ${e.message}")
+                }
+            }
         }
     }
 
@@ -2453,12 +2699,52 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun restoreFromBackupJson(jsonString: String, onResult: (Boolean, String) -> Unit) {
         viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
             val result = com.example.util.AppBackupUtils.restoreDatabaseFromJson(db, jsonString)
+            if (result.isSuccess) {
+                com.example.util.AppBackupUtils.saveContinuousSnapshot(getApplication(), db)
+            }
             kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
                 result.fold(
                     onSuccess = { msg -> onResult(true, msg) },
                     onFailure = { err -> onResult(false, err.message ?: "Gagal restore") }
                 )
             }
+        }
+    }
+
+    fun restoreFromLatestAutoSnapshot(onResult: (Boolean, String) -> Unit) {
+        viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            val result = com.example.util.AppBackupUtils.restoreFromLatestAutoSnapshot(getApplication(), db)
+            kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
+                result.fold(
+                    onSuccess = { msg -> onResult(true, msg) },
+                    onFailure = { err -> onResult(false, err.message ?: "Gagal restore") }
+                )
+            }
+        }
+    }
+
+    fun loadStandardSampleStoreData(onResult: (Boolean, String) -> Unit) {
+        viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            val result = com.example.util.AppBackupUtils.loadStandardSampleStoreData(db)
+            if (result.isSuccess) {
+                com.example.util.AppBackupUtils.saveContinuousSnapshot(getApplication(), db)
+            }
+            kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
+                result.fold(
+                    onSuccess = { msg -> onResult(true, msg) },
+                    onFailure = { err -> onResult(false, err.message ?: "Gagal memuat") }
+                )
+            }
+        }
+    }
+
+    fun getAllRecoveryFiles(): List<java.io.File> {
+        return com.example.util.AppBackupUtils.getAllRecoveryFiles(getApplication())
+    }
+
+    fun saveCurrentContinuousSnapshot() {
+        viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            com.example.util.AppBackupUtils.saveContinuousSnapshot(getApplication(), db)
         }
     }
 

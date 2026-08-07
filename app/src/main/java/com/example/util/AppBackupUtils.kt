@@ -21,6 +21,7 @@ import com.example.data.entity.SalesTransactionEntity
 import com.example.data.entity.StockHistoryEntity
 import com.example.data.entity.SupplierPayableEntity
 import com.example.data.entity.SupplierPaymentEntity
+import com.example.data.entity.TransactionHistoryLogEntity
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
@@ -346,6 +347,31 @@ object AppBackupUtils {
         }
         root.put("stockHistory", stockHistArr)
 
+        // 8. Transaction History Logs
+        val logArr = JSONArray()
+        val logs = db.transactionHistoryDao().getAllLogsList()
+        for (l in logs) {
+            val obj = JSONObject().apply {
+                put("id", l.id)
+                put("timestamp", l.timestamp)
+                put("tanggal", l.tanggal)
+                put("transactionType", l.transactionType)
+                put("transactionId", l.transactionId)
+                put("referenceNumber", l.referenceNumber)
+                put("actionType", l.actionType)
+                put("previousStatus", l.previousStatus)
+                put("newStatus", l.newStatus)
+                put("nominal", l.nominal)
+                put("accountType", l.accountType)
+                put("balanceBefore", l.balanceBefore)
+                put("balanceAfter", l.balanceAfter)
+                put("keterangan", l.keterangan)
+                put("syncStatus", l.syncStatus)
+            }
+            logArr.put(obj)
+        }
+        root.put("transactionHistoryLogs", logArr)
+
         root.toString(2)
     }
 
@@ -582,6 +608,32 @@ object AppBackupUtils {
                         db.stockHistoryDao().insertHistoryDirect(entity)
                     }
                 }
+
+                // 8. Transaction History Logs
+                if (root.has("transactionHistoryLogs")) {
+                    val arr = root.getJSONArray("transactionHistoryLogs")
+                    for (i in 0 until arr.length()) {
+                        val obj = arr.getJSONObject(i)
+                        val entity = TransactionHistoryLogEntity(
+                            id = obj.optLong("id", 0L),
+                            timestamp = obj.optLong("timestamp", System.currentTimeMillis()),
+                            tanggal = obj.optString("tanggal", ""),
+                            transactionType = obj.optString("transactionType", ""),
+                            transactionId = obj.optLong("transactionId", 0L),
+                            referenceNumber = obj.optString("referenceNumber", ""),
+                            actionType = obj.optString("actionType", ""),
+                            previousStatus = obj.optString("previousStatus", ""),
+                            newStatus = obj.optString("newStatus", ""),
+                            nominal = obj.optDouble("nominal", 0.0),
+                            accountType = obj.optString("accountType", ""),
+                            balanceBefore = obj.optDouble("balanceBefore", 0.0),
+                            balanceAfter = obj.optDouble("balanceAfter", 0.0),
+                            keterangan = obj.optString("keterangan", ""),
+                            syncStatus = obj.optString("syncStatus", "SYNCED")
+                        )
+                        db.transactionHistoryDao().insertLog(entity)
+                    }
+                }
             }
             Result.success("Berhasil memulihkan data aplikasi dari backup.")
         } catch (e: Exception) {
@@ -659,6 +711,177 @@ object AppBackupUtils {
     }
 
     /**
+     * Save continuous snapshot to phone internal storage so data is never lost during updates
+     */
+    suspend fun saveContinuousSnapshot(context: Context, db: AppDatabase): Unit = withContext(Dispatchers.IO) {
+        try {
+            val json = exportDatabaseToJson(db)
+            val file1 = File(context.filesDir, "pre_update_snapshot.json")
+            val file2 = File(context.filesDir, "auto_backup_latest.json")
+            FileOutputStream(file1).use { it.write(json.toByteArray(Charsets.UTF_8)) }
+            FileOutputStream(file2).use { it.write(json.toByteArray(Charsets.UTF_8)) }
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+    }
+
+    /**
+     * Retrieve all available local snapshot and auto backup files
+     */
+    fun getAllRecoveryFiles(context: Context): List<File> {
+        val filesList = mutableListOf<File>()
+        val file1 = File(context.filesDir, "pre_update_snapshot.json")
+        if (file1.exists() && file1.length() > 20) filesList.add(file1)
+
+        val file2 = File(context.filesDir, "auto_backup_latest.json")
+        if (file2.exists() && file2.length() > 20 && !filesList.contains(file2)) filesList.add(file2)
+
+        val autoDir = File(context.filesDir, "auto_backups")
+        if (autoDir.exists()) {
+            autoDir.listFiles { _, name -> name.endsWith(".json") }?.let {
+                filesList.addAll(it)
+            }
+        }
+        return filesList.sortedByDescending { it.lastModified() }
+    }
+
+    /**
+     * Automatically restore the most recent auto-recovery snapshot
+     */
+    suspend fun restoreFromLatestAutoSnapshot(context: Context, db: AppDatabase): Result<String> = withContext(Dispatchers.IO) {
+        val recoveryFiles = getAllRecoveryFiles(context)
+        if (recoveryFiles.isEmpty()) {
+            return@withContext Result.failure(Exception("Tidak ditemukan file cadangan otomatis di memori internal."))
+        }
+
+        for (file in recoveryFiles) {
+            try {
+                val jsonString = file.readText(Charsets.UTF_8)
+                if (jsonString.isNotBlank() && jsonString.contains("SmartStock")) {
+                    val res = restoreDatabaseFromJson(db, jsonString)
+                    if (res.isSuccess) {
+                        return@withContext Result.success("Berhasil memulihkan data dari cadangan: ${file.name}")
+                    }
+                }
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+        }
+        Result.failure(Exception("Gagal memulihkan dari cadangan otomatis."))
+    }
+
+    /**
+     * Load complete standard starter sample store items & initial cash accounts
+     */
+    suspend fun loadStandardSampleStoreData(db: AppDatabase): Result<String> = withContext(Dispatchers.IO) {
+        try {
+            db.withTransaction {
+                val existingItems = db.itemDao().getAllItemsList()
+                if (existingItems.isEmpty()) {
+                    val sampleItems = listOf(
+                        ItemEntity(
+                            kodeBarang = "BRG001",
+                            namaBarang = "Beras Premium Ramos 5kg",
+                            stok = 50,
+                            stokTokoUtama = 30,
+                            stokTokoCabang = 20,
+                            hargaModal = 68000.0,
+                            keterangan = "Gudang: 30, Toko: 20",
+                            updatedAt = System.currentTimeMillis()
+                        ),
+                        ItemEntity(
+                            kodeBarang = "BRG002",
+                            namaBarang = "Minyak Goreng Bimoli 2 Liter",
+                            stok = 40,
+                            stokTokoUtama = 25,
+                            stokTokoCabang = 15,
+                            hargaModal = 34000.0,
+                            keterangan = "Gudang: 25, Toko: 15",
+                            updatedAt = System.currentTimeMillis()
+                        ),
+                        ItemEntity(
+                            kodeBarang = "BRG003",
+                            namaBarang = "Gula Pasir Gulaku 1kg",
+                            stok = 60,
+                            stokTokoUtama = 40,
+                            stokTokoCabang = 20,
+                            hargaModal = 15500.0,
+                            keterangan = "Gudang: 40, Toko: 20",
+                            updatedAt = System.currentTimeMillis()
+                        ),
+                        ItemEntity(
+                            kodeBarang = "BRG004",
+                            namaBarang = "Telur Ayam Negeri 1kg",
+                            stok = 35,
+                            stokTokoUtama = 20,
+                            stokTokoCabang = 15,
+                            hargaModal = 26000.0,
+                            keterangan = "Gudang: 20, Toko: 15",
+                            updatedAt = System.currentTimeMillis()
+                        ),
+                        ItemEntity(
+                            kodeBarang = "BRG005",
+                            namaBarang = "Indomie Goreng Spesial (Dus)",
+                            stok = 30,
+                            stokTokoUtama = 20,
+                            stokTokoCabang = 10,
+                            hargaModal = 112000.0,
+                            keterangan = "Gudang: 20, Toko: 10",
+                            updatedAt = System.currentTimeMillis()
+                        ),
+                        ItemEntity(
+                            kodeBarang = "BRG006",
+                            namaBarang = "Kopi Kapal Api Special Mix 1 Renceng",
+                            stok = 45,
+                            stokTokoUtama = 30,
+                            stokTokoCabang = 15,
+                            hargaModal = 14500.0,
+                            keterangan = "Gudang: 30, Toko: 15",
+                            updatedAt = System.currentTimeMillis()
+                        ),
+                        ItemEntity(
+                            kodeBarang = "BRG007",
+                            namaBarang = "Sabun Mandi Lifebuoy Total 10 (Pack)",
+                            stok = 50,
+                            stokTokoUtama = 35,
+                            stokTokoCabang = 15,
+                            hargaModal = 18000.0,
+                            keterangan = "Gudang: 35, Toko: 15",
+                            updatedAt = System.currentTimeMillis()
+                        )
+                    )
+
+                    for (item in sampleItems) {
+                        db.itemDao().insertItem(item)
+                    }
+
+                    // Setup initial cash account balances
+                    db.cashDao().insertOrUpdateAccount(
+                        CashAccountEntity(
+                            accountType = "TUNAI",
+                            accountName = "Kas Tunai Toko",
+                            saldo = 1500000.0,
+                            lastUpdated = System.currentTimeMillis()
+                        )
+                    )
+                    db.cashDao().insertOrUpdateAccount(
+                        CashAccountEntity(
+                            accountType = "BANK",
+                            accountName = "Kas Rekening Bank",
+                            saldo = 5000000.0,
+                            lastUpdated = System.currentTimeMillis()
+                        )
+                    )
+                }
+            }
+            Result.success("Berhasil memuat 7 produk standar toko dan saldo kas awal.")
+        } catch (e: Exception) {
+            e.printStackTrace()
+            Result.failure(Exception("Gagal memuat data standar: ${e.message}"))
+        }
+    }
+
+    /**
      * Copy text to clipboard
      */
     fun copyToClipboard(context: Context, text: String, label: String = "Backup Teks") {
@@ -668,3 +891,4 @@ object AppBackupUtils {
         Toast.makeText(context, "Teks $label berhasil disalin ke clipboard", Toast.LENGTH_SHORT).show()
     }
 }
+
