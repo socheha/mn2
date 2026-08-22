@@ -5,6 +5,7 @@ import android.net.Uri
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -21,6 +22,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -156,6 +158,7 @@ fun MenuPengaturanScreen(viewModel: MainViewModel) {
     var pastedJsonText by remember { mutableStateOf("") }
 
     var showResetConfirmDialog by remember { mutableStateOf(false) }
+    var showConfirmPreUpdateRestoreDialog by remember { mutableStateOf(false) }
     var resetConfirmationInput by remember { mutableStateOf("") }
     var resetPinInput by remember { mutableStateOf("") }
     var isProcessing by remember { mutableStateOf(false) }
@@ -690,6 +693,114 @@ fun MenuPengaturanScreen(viewModel: MainViewModel) {
                         Icon(Icons.Default.Restore, contentDescription = null, modifier = Modifier.size(16.dp))
                         Spacer(modifier = Modifier.width(4.dp))
                         Text("Pulihkan Terakhir", fontSize = 12.sp)
+                    }
+                }
+            }
+        }
+
+        Spacer(modifier = Modifier.height(14.dp))
+
+        // --- 0.B. CARD PEMULIHAN DATA SEBELUM UPDATE ---
+        Card(
+            modifier = Modifier
+                .fillMaxWidth()
+                .testTag("card_pemulihan_sebelum_update"),
+            shape = RoundedCornerShape(16.dp),
+            colors = CardDefaults.cardColors(containerColor = Color(0xFFFFF8E1)),
+            border = BorderStroke(1.dp, Color(0xFFFFB300)),
+            elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+        ) {
+            Column(modifier = Modifier.padding(16.dp)) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Box(
+                            modifier = Modifier
+                                .size(36.dp)
+                                .background(Color(0xFFFF8F00), CircleShape),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Restore,
+                                contentDescription = null,
+                                tint = Color.White,
+                                modifier = Modifier.size(22.dp)
+                            )
+                        }
+                        Spacer(modifier = Modifier.width(10.dp))
+                        Column {
+                            Text(
+                                text = "Pemulihan Data Sebelum Update",
+                                fontSize = 15.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = Color(0xFFE65100)
+                            )
+                            Text(
+                                text = "Snapshot Cadangan Otomatis Pra-Pembaruan",
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                color = Color(0xFFF57C00)
+                            )
+                        }
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(8.dp))
+                Text(
+                    text = "Sistem secara otomatis mengamankan snapshot database (seluruh data barang, stok toko/cabang, kas tunai & bank, transaksi penjualan, piutang pelanggan, dan hutang) sebelum update aplikasi berlangsung. Jika Anda baru memperbarui aplikasi atau ingin memulihkan kondisi data terakhir, gunakan tombol di bawah.",
+                    fontSize = 12.sp,
+                    color = Color(0xFF5D4037)
+                )
+
+                Spacer(modifier = Modifier.height(12.dp))
+
+                Button(
+                    onClick = { showConfirmPreUpdateRestoreDialog = true },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .testTag("btn_pulihkan_data_sebelum_update"),
+                    shape = RoundedCornerShape(10.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFE65100))
+                ) {
+                    Icon(imageVector = Icons.Default.Restore, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(
+                        text = if (isProcessing) "Memproses Pemulihan..." else "Pulihkan Data Snapshot Sebelum Update",
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = Color.White
+                    )
+                }
+
+                Spacer(modifier = Modifier.height(8.dp))
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    OutlinedButton(
+                        onClick = { showAutoBackupListDialog = true },
+                        modifier = Modifier.weight(1f),
+                        shape = RoundedCornerShape(10.dp),
+                        colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFFE65100))
+                    ) {
+                        Icon(Icons.Default.Folder, contentDescription = null, modifier = Modifier.size(16.dp))
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text("Daftar Snapshot", fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                    }
+
+                    OutlinedButton(
+                        onClick = { restoreFilePickerLauncher.launch("application/json") },
+                        modifier = Modifier.weight(1f),
+                        shape = RoundedCornerShape(10.dp),
+                        colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFFE65100))
+                    ) {
+                        Icon(Icons.Default.FileUpload, contentDescription = null, modifier = Modifier.size(16.dp))
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text("Pilih File JSON", fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
                     }
                 }
             }
@@ -1560,6 +1671,71 @@ fun MenuPengaturanScreen(viewModel: MainViewModel) {
             },
             dismissButton = {
                 TextButton(onClick = { showRestoreTextDialog = false }) {
+                    Text("Batal")
+                }
+            }
+        )
+    }
+
+    // --- DIALOG CONFIRM RESTORE PRE-UPDATE SNAPSHOT ---
+    if (showConfirmPreUpdateRestoreDialog) {
+        AlertDialog(
+            onDismissRequest = { showConfirmPreUpdateRestoreDialog = false },
+            icon = {
+                Icon(
+                    imageVector = Icons.Default.Restore,
+                    contentDescription = null,
+                    tint = Color(0xFFE65100),
+                    modifier = Modifier.size(32.dp)
+                )
+            },
+            title = {
+                Text(
+                    text = "Konfirmasi Pemulihan Data Sebelum Update",
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 16.sp,
+                    color = Color(0xFFE65100)
+                )
+            },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text(
+                        text = "Apakah Anda yakin ingin memulihkan seluruh data toko dari snapshot cadangan otomatis sebelum update?",
+                        fontSize = 13.sp,
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                    Surface(
+                        shape = RoundedCornerShape(8.dp),
+                        color = Color(0xFFFFF3E0),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text(
+                            text = "ℹ️ Seluruh data barang, stok gudang & cabang, kas tunai/bank, transaksi, piutang, dan hutang akan dikembalikan ke kondisi snapshot cadangan terakhir.",
+                            fontSize = 11.sp,
+                            color = Color(0xFFBF360C),
+                            modifier = Modifier.padding(8.dp)
+                        )
+                    }
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        showConfirmPreUpdateRestoreDialog = false
+                        isProcessing = true
+                        viewModel.restoreFromLatestAutoSnapshot { success, msg ->
+                            isProcessing = false
+                            Toast.makeText(context, msg, Toast.LENGTH_LONG).show()
+                        }
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFE65100)),
+                    modifier = Modifier.testTag("btn_confirm_pulihkan_snapshot_sebelum_update")
+                ) {
+                    Text("Ya, Pulihkan Sekarang", fontWeight = FontWeight.Bold)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showConfirmPreUpdateRestoreDialog = false }) {
                     Text("Batal")
                 }
             }

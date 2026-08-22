@@ -44,6 +44,7 @@ import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.ShoppingCart
 import androidx.compose.material.icons.filled.Store
 import androidx.compose.material.icons.filled.Storefront
+import androidx.compose.material.icons.filled.SwapHoriz
 import androidx.compose.material.icons.filled.CameraAlt
 import androidx.compose.foundation.layout.size
 import com.example.ui.components.ScanReceiptDialog
@@ -685,24 +686,35 @@ fun MenuPenjualanHarianScreen(
                             draftItemQuantities = draftQuantitiesMap,
                             isPenjualanMode = true,
                             onItemSelectedWithQty = { selectedItem, qty ->
-                                if (selectedItem.stok <= 0) {
-                                    Toast.makeText(context, "Stok '${selectedItem.namaBarang}' habis (0)!", Toast.LENGTH_SHORT).show()
+                                val totalStock = selectedItem.totalStokCombined
+                                if (totalStock <= 0) {
+                                    Toast.makeText(context, "Total stok '${selectedItem.namaBarang}' habis (0)!", Toast.LENGTH_SHORT).show()
                                 } else {
                                     val currentQty = draftQuantitiesMap[selectedItem.id] ?: 0
-                                    val maxAvailable = selectedItem.stok - currentQty
+                                    val maxAvailable = totalStock - currentQty
                                     if (qty > maxAvailable) {
                                         Toast.makeText(
                                             context,
-                                            "Stok tidak mencukupi! Maksimal dapat ditambah $maxAvailable unit lagi (stok: ${selectedItem.stok}, draf: $currentQty).",
+                                            "Stok tidak mencukupi! Maksimal dapat ditambah $maxAvailable unit lagi (total stok: $totalStock, draf: $currentQty).",
                                             Toast.LENGTH_LONG
                                         ).show()
                                     } else {
                                         viewModel.addSalesCartItem(selectedItem, qty)
                                         val newQty = currentQty + qty
+                                        val isCabangSelected = selectedStoreForSales == "Stok Toko" || selectedStoreForSales == "Toko Cabang"
+                                        val selStock = if (isCabangSelected) selectedItem.actualStokCabang else selectedItem.actualStokUtama
+                                        val othStock = if (isCabangSelected) selectedItem.actualStokUtama else selectedItem.actualStokCabang
+                                        val selName = if (isCabangSelected) "Stok Toko" else "Gudang"
+                                        val othName = if (isCabangSelected) "Gudang" else "Stok Toko"
+
+                                        val fallbackInfo = if (selStock == 0 && othStock > 0) {
+                                            " (⚡ $selName 0, dialihkan ke $othName)"
+                                        } else ""
+
                                         val toastMsg = if (currentQty > 0) {
-                                            "'${selectedItem.namaBarang}' ditambah (+$qty) di draf (Total: $newQty)"
+                                            "'${selectedItem.namaBarang}' ditambah (+$qty) di draf (Total: $newQty)$fallbackInfo"
                                         } else {
-                                            "'${selectedItem.namaBarang}' x$qty dimasukkan ke draf"
+                                            "'${selectedItem.namaBarang}' x$qty dimasukkan ke draf$fallbackInfo"
                                         }
                                         Toast.makeText(context, toastMsg, Toast.LENGTH_SHORT).show()
                                     }
@@ -882,7 +894,7 @@ fun MenuPenjualanHarianScreen(
                                     }
                                     Spacer(modifier = Modifier.height(2.dp))
                                     Text(
-                                        text = "Stok Tersedia: ${cartItem.item.stok} unit",
+                                        text = "Total Stok: ${cartItem.item.totalStokCombined} (Gudang: ${cartItem.item.actualStokUtama} | Toko: ${cartItem.item.actualStokCabang})",
                                         fontSize = 12.sp,
                                         color = MaterialTheme.colorScheme.onSurfaceVariant
                                     )
@@ -910,6 +922,65 @@ fun MenuPenjualanHarianScreen(
                                         contentDescription = "Hapus",
                                         tint = MaterialTheme.colorScheme.error
                                     )
+                                }
+                            }
+
+                            val isCabangSelected = selectedStoreForSales == "Stok Toko" || selectedStoreForSales == "Toko Cabang"
+                            val stokInSelected = if (isCabangSelected) cartItem.item.actualStokCabang else cartItem.item.actualStokUtama
+                            val stokInOther = if (isCabangSelected) cartItem.item.actualStokUtama else cartItem.item.actualStokCabang
+                            val selName = if (isCabangSelected) "Stok Toko" else "Gudang"
+                            val othName = if (isCabangSelected) "Gudang" else "Stok Toko"
+
+                            if (stokInSelected == 0 && stokInOther > 0) {
+                                Surface(
+                                    shape = RoundedCornerShape(8.dp),
+                                    color = Color(0xFFE8F5E9),
+                                    modifier = Modifier.fillMaxWidth().padding(top = 6.dp)
+                                ) {
+                                    Row(
+                                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.SwapHoriz,
+                                            contentDescription = null,
+                                            tint = Color(0xFF2E7D32),
+                                            modifier = Modifier.size(16.dp)
+                                        )
+                                        Spacer(modifier = Modifier.width(6.dp))
+                                        Text(
+                                            text = "⚡ $selName kosong (0). Otomatis dialihkan & potong dari $othName ($stokInOther unit tersedia)",
+                                            fontSize = 11.sp,
+                                            fontWeight = FontWeight.Medium,
+                                            color = Color(0xFF2E7D32)
+                                        )
+                                    }
+                                }
+                            } else if (stokInSelected > 0 && cartItem.jumlahTerjual > stokInSelected) {
+                                Surface(
+                                    shape = RoundedCornerShape(8.dp),
+                                    color = Color(0xFFFFF3E0),
+                                    modifier = Modifier.fillMaxWidth().padding(top = 6.dp)
+                                ) {
+                                    Row(
+                                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.SwapHoriz,
+                                            contentDescription = null,
+                                            tint = Color(0xFFE65100),
+                                            modifier = Modifier.size(16.dp)
+                                        )
+                                        Spacer(modifier = Modifier.width(6.dp))
+                                        val shortfall = cartItem.jumlahTerjual - stokInSelected
+                                        Text(
+                                            text = "⚡ $selName hanya ada $stokInSelected unit. Sisa $shortfall unit otomatis potong dari $othName",
+                                            fontSize = 11.sp,
+                                            fontWeight = FontWeight.Medium,
+                                            color = Color(0xFFE65100)
+                                        )
+                                    }
                                 }
                             }
 
@@ -957,7 +1028,7 @@ fun MenuPenjualanHarianScreen(
 
                                         IconButton(
                                             onClick = {
-                                                if (cartItem.jumlahTerjual < cartItem.item.stok) {
+                                                if (cartItem.jumlahTerjual < cartItem.item.totalStokCombined) {
                                                     viewModel.updateSalesCartQuantity(cartItem.item.id, cartItem.jumlahTerjual + 1)
                                                 }
                                             },

@@ -17,6 +17,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
@@ -96,6 +97,13 @@ fun MenuBarangScreen(
     val filteredItemsList = remember(itemsList, searchQuery) {
         if (searchQuery.isBlank()) itemsList
         else com.example.util.ItemMatcher.searchItems(searchQuery, itemsList)
+    }
+
+    val totalNilaiModal = remember(itemsList) {
+        itemsList.sumOf { (it.totalStokCombined.toDouble()) * it.hargaModal }
+    }
+    val totalUnitStok = remember(itemsList) {
+        itemsList.sumOf { it.totalStokCombined }
     }
 
     val availableAccounts = remember(allCashAccounts) {
@@ -199,6 +207,90 @@ fun MenuBarangScreen(
                 .padding(innerPadding)
                 .background(MaterialTheme.colorScheme.background)
         ) {
+            // Summary Card: Total Nilai Seluruh Produk
+            item {
+                Card(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 8.dp),
+                    shape = RoundedCornerShape(16.dp),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.45f)),
+                    elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
+                ) {
+                    Column(modifier = Modifier.padding(16.dp)) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(36.dp)
+                                        .background(MaterialTheme.colorScheme.primary, CircleShape),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.Inventory2,
+                                        contentDescription = null,
+                                        tint = Color.White,
+                                        modifier = Modifier.size(20.dp)
+                                    )
+                                }
+                                Spacer(modifier = Modifier.width(10.dp))
+                                Column {
+                                    Text(
+                                        text = "Total Nilai Seluruh Produk",
+                                        fontSize = 14.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = MaterialTheme.colorScheme.onPrimaryContainer
+                                    )
+                                    Text(
+                                        text = "${itemsList.size} Jenis Produk • $totalUnitStok Unit Total Stok",
+                                        fontSize = 11.sp,
+                                        color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.8f)
+                                    )
+                                }
+                            }
+                        }
+
+                        Spacer(modifier = Modifier.height(12.dp))
+
+                        Surface(
+                            shape = RoundedCornerShape(12.dp),
+                            color = Color.White.copy(alpha = 0.9f),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Column {
+                                    Text(
+                                        text = "Total Nilai Modal Produk (Aset Toko):",
+                                        fontSize = 12.sp,
+                                        fontWeight = FontWeight.SemiBold,
+                                        color = Color(0xFF37474F)
+                                    )
+                                    Text(
+                                        text = "Dihitung dari (Total Stok × Harga Modal)",
+                                        fontSize = 10.sp,
+                                        color = Color(0xFF78909C)
+                                    )
+                                }
+                                Text(
+                                    text = Formatters.formatRupiah(totalNilaiModal),
+                                    fontSize = 18.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.primary
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+
             // Search Bar & Import Action
             item {
                 Surface(

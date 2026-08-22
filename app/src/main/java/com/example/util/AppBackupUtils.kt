@@ -738,15 +738,30 @@ object AppBackupUtils {
     }
 
     /**
-     * Save continuous snapshot to phone internal storage so data is never lost during updates
+     * Save continuous snapshot to phone internal storage and SharedPreferences so data is never lost during updates
      */
     suspend fun saveContinuousSnapshot(context: Context, db: AppDatabase): Unit = withContext(Dispatchers.IO) {
         try {
             val json = exportDatabaseToJson(db)
+            if (json.length < 20) return@withContext
+
             val file1 = File(context.filesDir, "pre_update_snapshot.json")
             val file2 = File(context.filesDir, "auto_backup_latest.json")
             FileOutputStream(file1).use { it.write(json.toByteArray(Charsets.UTF_8)) }
             FileOutputStream(file2).use { it.write(json.toByteArray(Charsets.UTF_8)) }
+
+            // Also keep an emergency copy in auto_backups folder
+            val autoDir = File(context.filesDir, "auto_backups")
+            if (!autoDir.exists()) autoDir.mkdirs()
+            val file3 = File(autoDir, "snapshot_emergency_copy.json")
+            FileOutputStream(file3).use { it.write(json.toByteArray(Charsets.UTF_8)) }
+
+            // Secondary safety layer: Store in persistent SharedPreferences
+            val prefs = context.getSharedPreferences("smartstock_persistent_snapshot", Context.MODE_PRIVATE)
+            prefs.edit()
+                .putString("latest_json_snapshot", json)
+                .putLong("latest_saved_time", System.currentTimeMillis())
+                .apply()
         } catch (e: Exception) {
             e.printStackTrace()
         }
@@ -766,35 +781,50 @@ object AppBackupUtils {
         val autoDir = File(context.filesDir, "auto_backups")
         if (autoDir.exists()) {
             autoDir.listFiles { _, name -> name.endsWith(".json") }?.let {
-                filesList.addAll(it)
+                for (f in it) {
+                    if (!filesList.contains(f) && f.length() > 20) {
+                        filesList.add(f)
+                    }
+                }
             }
         }
         return filesList.sortedByDescending { it.lastModified() }
     }
 
     /**
-     * Automatically restore the most recent auto-recovery snapshot
+     * Automatically restore the most recent auto-recovery snapshot from files or SharedPreferences
      */
     suspend fun restoreFromLatestAutoSnapshot(context: Context, db: AppDatabase): Result<String> = withContext(Dispatchers.IO) {
         val recoveryFiles = getAllRecoveryFiles(context)
-        if (recoveryFiles.isEmpty()) {
-            return@withContext Result.failure(Exception("Tidak ditemukan file cadangan otomatis di memori internal."))
-        }
-
         for (file in recoveryFiles) {
             try {
                 val jsonString = file.readText(Charsets.UTF_8)
                 if (jsonString.isNotBlank() && jsonString.contains("SmartStock")) {
                     val res = restoreDatabaseFromJson(db, jsonString)
                     if (res.isSuccess) {
-                        return@withContext Result.success("Berhasil memulihkan data dari cadangan: ${file.name}")
+                        return@withContext Result.success("Berhasil memulihkan data dari cadangan snapshot: ${file.name}")
                     }
                 }
             } catch (e: Exception) {
                 e.printStackTrace()
             }
         }
-        Result.failure(Exception("Gagal memulihkan dari cadangan otomatis."))
+
+        // Fallback to SharedPreferences emergency snapshot if files are not accessible
+        try {
+            val prefs = context.getSharedPreferences("smartstock_persistent_snapshot", Context.MODE_PRIVATE)
+            val jsonString = prefs.getString("latest_json_snapshot", null)
+            if (!jsonString.isNullOrBlank() && jsonString.contains("SmartStock")) {
+                val res = restoreDatabaseFromJson(db, jsonString)
+                if (res.isSuccess) {
+                    return@withContext Result.success("Berhasil memulihkan data dari cadangan memori darurat SharedPreferences.")
+                }
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+
+        Result.failure(Exception("Tidak ditemukan snapshot cadangan otomatis."))
     }
 
     /**

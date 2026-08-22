@@ -77,10 +77,29 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 com.example.util.AppBackupUtils.saveContinuousSnapshot(application, db)
             }
 
-            // Automatic weekly backup check on app startup
+            // Automatic periodic auto backup check on app startup
             val autoBackupMsg = com.example.util.AutoBackupManager.checkAndPerformWeeklyAutoBackup(application, db)
             if (autoBackupMsg != null) {
                 _lastAutoBackupTime.value = com.example.util.AutoBackupManager.getLastBackupTimestamp(application)
+            }
+        }
+
+        // Proactively keep continuous snapshot synchronized on data changes
+        viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            itemDao.getAllItems().collect { items ->
+                if (items.isNotEmpty()) {
+                    com.example.util.AppBackupUtils.saveContinuousSnapshot(application, db)
+                }
+            }
+        }
+    }
+
+    fun persistSnapshotBackground() {
+        viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            try {
+                com.example.util.AppBackupUtils.saveContinuousSnapshot(getApplication(), db)
+            } catch (e: Exception) {
+                e.printStackTrace()
             }
         }
     }
@@ -594,9 +613,22 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    fun clearAllBankAccounts() {
+    fun clearAllBankAccounts(onSuccess: () -> Unit = {}) {
         viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
             cashDao.deleteAllBankAccounts()
+            cashDao.deleteAllBankAndTransferMutations()
+            kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
+                onSuccess()
+            }
+        }
+    }
+
+    fun clearBankAndTransferHistory(onSuccess: () -> Unit = {}) {
+        viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            cashDao.deleteAllBankAndTransferMutations()
+            kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
+                onSuccess()
+            }
         }
     }
 
@@ -1353,13 +1385,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         val current = _salesCart.value.toMutableList()
         val index = current.indexOfFirst { it.item.id == item.id }
         val addQty = qty.coerceAtLeast(1)
+        val maxStock = maxOf(1, item.totalStokCombined)
         if (index != -1) {
             val existing = current[index]
-            val maxStock = maxOf(1, existing.item.stok)
             val newQty = (existing.jumlahTerjual + addQty).coerceAtMost(maxStock)
             current[index] = existing.copy(jumlahTerjual = newQty)
         } else {
-            val maxStock = maxOf(1, item.stok)
             val initialQty = addQty.coerceAtMost(maxStock)
             current.add(CartItemSales(item = item, jumlahTerjual = initialQty, hargaSatuan = item.hargaModal))
         }
@@ -1370,7 +1401,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         val current = _salesCart.value.toMutableList()
         val index = current.indexOfFirst { it.item.id == itemId }
         if (index != -1) {
-            val maxStock = current[index].item.stok
+            val maxStock = current[index].item.totalStokCombined
             current[index] = current[index].copy(jumlahTerjual = qty.coerceIn(0, maxOf(0, maxStock)))
             _salesCart.value = current
         }
@@ -1608,24 +1639,50 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     }
                 }
 
-                // Deduct store stock & log stock history
+                // Deduct store stock & log stock history with auto-fallback to other store/warehouse
                 cart.forEach { cartItem ->
                     val currentItem = itemDao.getItemById(cartItem.item.id)
                     if (currentItem != null) {
                         val oldUtama = currentItem.actualStokUtama
                         val oldCabang = currentItem.actualStokCabang
-
                         val qtyDeducted = cartItem.jumlahTerjual
+
                         var newUtama = oldUtama
                         var newCabang = oldCabang
+                        var deductedFromUtama = 0
+                        var deductedFromCabang = 0
 
-                        val isCabang = selectedStore == "Toko Cabang" || selectedStore == "Stok Toko" || selectedStore.contains("Cabang", ignoreCase = true)
+                        val isCabang = selectedStore == "Toko Cabang" || selectedStore == "Stok Toko" || selectedStore.contains("Cabang", ignoreCase = true) || selectedStore.contains("Toko", ignoreCase = true)
+                        
                         if (isCabang) {
-                            newCabang = (oldCabang - qtyDeducted).coerceAtLeast(0)
+                            if (oldCabang >= qtyDeducted) {
+                                newCabang = oldCabang - qtyDeducted
+                                deductedFromCabang = qtyDeducted
+                            } else {
+                                // Stok toko 0 atau kurang dari jumlah -> potong semua dari cabang, sisanya otomatis dari Gudang
+                                deductedFromCabang = oldCabang
+                                val shortfall = qtyDeducted - oldCabang
+                                val fromUtama = shortfall.coerceAtMost(oldUtama)
+                                newCabang = 0
+                                newUtama = (oldUtama - fromUtama).coerceAtLeast(0)
+                                deductedFromUtama = fromUtama
+                            }
                         } else {
-                            newUtama = (oldUtama - qtyDeducted).coerceAtLeast(0)
+                            if (oldUtama >= qtyDeducted) {
+                                newUtama = oldUtama - qtyDeducted
+                                deductedFromUtama = qtyDeducted
+                            } else {
+                                // Stok gudang 0 atau kurang dari jumlah -> potong semua dari gudang, sisanya otomatis dari Stok Toko
+                                deductedFromUtama = oldUtama
+                                val shortfall = qtyDeducted - oldUtama
+                                val fromCabang = shortfall.coerceAtMost(oldCabang)
+                                newUtama = 0
+                                newCabang = (oldCabang - fromCabang).coerceAtLeast(0)
+                                deductedFromCabang = fromCabang
+                            }
                         }
-                        val totalS = newUtama + newCabang
+
+                        val totalS = (newUtama + newCabang).coerceAtLeast(0)
 
                         itemDao.updateStoreStocks(
                             id = cartItem.item.id,
@@ -1634,16 +1691,24 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                             totalStok = totalS
                         )
 
+                        val autoFallbackNote = if (isCabang && oldCabang < qtyDeducted && deductedFromUtama > 0) {
+                            if (oldCabang <= 0) " [Stok Toko 0 -> Dialihkan ke Gudang: $deductedFromUtama unit]"
+                            else " [Stok Toko: $deductedFromCabang unit, Sisa potong Gudang: $deductedFromUtama unit]"
+                        } else if (!isCabang && oldUtama < qtyDeducted && deductedFromCabang > 0) {
+                            if (oldUtama <= 0) " [Stok Gudang 0 -> Dialihkan ke Toko: $deductedFromCabang unit]"
+                            else " [Stok Gudang: $deductedFromUtama unit, Sisa potong Toko: $deductedFromCabang unit]"
+                        } else ""
+
                         stockHistoryDao.insertHistory(
                             StockHistoryEntity(
                                 itemId = cartItem.item.id,
                                 kodeBarang = cartItem.item.kodeBarang,
                                 namaBarang = cartItem.item.namaBarang,
                                 jumlahPerubahan = -qtyDeducted,
-                                stokAwal = if (isCabang) oldCabang else oldUtama,
-                                stokAkhir = if (isCabang) newCabang else newUtama,
+                                stokAwal = currentItem.totalStokCombined,
+                                stokAkhir = totalS,
                                 jenis = "Penjualan Harian",
-                                keterangan = "Penjualan $selectedStore Tgl: $tanggal ${if (namaPelanggan.isNotBlank()) "($namaPelanggan)" else ""}",
+                                keterangan = "Penjualan $selectedStore Tgl: $tanggal ${if (namaPelanggan.isNotBlank()) "($namaPelanggan)" else ""}$autoFallbackNote".trim(),
                                 namaToko = selectedStore
                             )
                         )
@@ -2129,17 +2194,41 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             itemsToSave.forEach { newItem ->
                 val product = itemDao.getItemById(newItem.itemId)
                 if (product != null) {
-                    val isCabang = oldTx.namaToko.contains("Cabang", ignoreCase = true)
+                    val isCabang = oldTx.namaToko.contains("Cabang", ignoreCase = true) || oldTx.namaToko.contains("Toko", ignoreCase = true)
                     val oldUtama = product.actualStokUtama
                     val oldCabang = product.actualStokCabang
+                    val qtyDeducted = newItem.jumlahTerjual
                     var newUtama = oldUtama
                     var newCabang = oldCabang
+                    var deductedFromUtama = 0
+                    var deductedFromCabang = 0
+
                     if (isCabang) {
-                        newCabang = (newCabang - newItem.jumlahTerjual).coerceAtLeast(0)
+                        if (oldCabang >= qtyDeducted) {
+                            newCabang = oldCabang - qtyDeducted
+                            deductedFromCabang = qtyDeducted
+                        } else {
+                            deductedFromCabang = oldCabang
+                            val shortfall = qtyDeducted - oldCabang
+                            val fromUtama = shortfall.coerceAtMost(oldUtama)
+                            newCabang = 0
+                            newUtama = (oldUtama - fromUtama).coerceAtLeast(0)
+                            deductedFromUtama = fromUtama
+                        }
                     } else {
-                        newUtama = (newUtama - newItem.jumlahTerjual).coerceAtLeast(0)
+                        if (oldUtama >= qtyDeducted) {
+                            newUtama = oldUtama - qtyDeducted
+                            deductedFromUtama = qtyDeducted
+                        } else {
+                            deductedFromUtama = oldUtama
+                            val shortfall = qtyDeducted - oldUtama
+                            val fromCabang = shortfall.coerceAtMost(oldCabang)
+                            newUtama = 0
+                            newCabang = (oldCabang - fromCabang).coerceAtLeast(0)
+                            deductedFromCabang = fromCabang
+                        }
                     }
-                    val totalS = newUtama + newCabang
+                    val totalS = (newUtama + newCabang).coerceAtLeast(0)
                     itemDao.updateStoreStocks(
                         id = product.id,
                         stokUtama = newUtama,
@@ -2148,6 +2237,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     )
 
                     calculatedTotalModal += (product.hargaModal * newItem.jumlahTerjual)
+
+                    val autoFallbackNote = if (isCabang && oldCabang < qtyDeducted && deductedFromUtama > 0) {
+                        if (oldCabang <= 0) " [Stok Toko 0 -> Dialihkan ke Gudang: $deductedFromUtama unit]"
+                        else " [Stok Toko: $deductedFromCabang unit, Sisa potong Gudang: $deductedFromUtama unit]"
+                    } else if (!isCabang && oldUtama < qtyDeducted && deductedFromCabang > 0) {
+                        if (oldUtama <= 0) " [Stok Gudang 0 -> Dialihkan ke Toko: $deductedFromCabang unit]"
+                        else " [Stok Gudang: $deductedFromUtama unit, Sisa potong Toko: $deductedFromCabang unit]"
+                    } else ""
 
                     // Add stock history log for edit
                     stockHistoryDao.insertHistory(
@@ -2159,7 +2256,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                             stokAwal = product.totalStokCombined,
                             stokAkhir = totalS,
                             jenis = "Edit Penjualan",
-                            keterangan = "Perubahan Transaksi Penjualan #${oldTx.id}",
+                            keterangan = "Perubahan Transaksi Penjualan #${oldTx.id}$autoFallbackNote".trim(),
                             namaToko = oldTx.namaToko
                         )
                     )

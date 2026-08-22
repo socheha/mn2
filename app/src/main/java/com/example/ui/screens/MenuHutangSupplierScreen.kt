@@ -3,6 +3,7 @@ package com.example.ui.screens
 import android.widget.Toast
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -11,8 +12,11 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CheckCircle
@@ -83,6 +87,10 @@ fun MenuHutangSupplierScreen(
     var payableToCancel by remember { mutableStateOf<SupplierPayableEntity?>(null) }
     var showAddDialog by remember { mutableStateOf(false) }
 
+    val totalHutangTerdaftar = remember(payablesList) { payablesList.sumOf { it.nominalAwal } }
+    val totalHutangBelumLunas = remember(payablesList) { payablesList.sumOf { it.nominalSisa } }
+    val totalHutangSudahBayar = remember(payablesList) { payablesList.sumOf { (it.nominalAwal - it.nominalSisa).coerceAtLeast(0.0) } }
+
     val filteredPayables = remember(payablesList, searchQuery, selectedFilter) {
         payablesList.filter { item ->
             val matchesSearch = searchQuery.isBlank() ||
@@ -126,41 +134,128 @@ fun MenuHutangSupplierScreen(
             contentPadding = PaddingValues(16.dp),
             verticalArrangement = Arrangement.spacedBy(14.dp)
         ) {
-            // Unpaid Total Banner
+            // Total Hutang Toko Summary Card
             item {
                 Card(
                     modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(14.dp),
+                    shape = RoundedCornerShape(16.dp),
                     colors = CardDefaults.cardColors(containerColor = Color(0xFFFFEBEE))
                 ) {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(18.dp),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Column {
-                            Text(
-                                text = "Total Hutang Supplier Belum Lunas",
-                                fontSize = 13.sp,
-                                color = Color(0xFFB71C1C),
-                                fontWeight = FontWeight.SemiBold
-                            )
-                            Spacer(modifier = Modifier.height(4.dp))
-                            Text(
-                                text = Formatters.formatRupiah(totalUnpaid),
-                                fontSize = 20.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = Color(0xFFB71C1C)
-                            )
+                    Column(modifier = Modifier.padding(16.dp)) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(36.dp)
+                                        .background(Color(0xFFD32F2F), CircleShape),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.MoneyOff,
+                                        contentDescription = null,
+                                        tint = Color.White,
+                                        modifier = Modifier.size(20.dp)
+                                    )
+                                }
+                                Spacer(modifier = Modifier.width(10.dp))
+                                Column {
+                                    Text(
+                                        text = "Total Hutang Toko Terdaftar",
+                                        fontSize = 14.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = Color(0xFFB71C1C)
+                                    )
+                                    Text(
+                                        text = "${payablesList.size} Transaksi Hutang Tercatat",
+                                        fontSize = 11.sp,
+                                        color = Color(0xFFC62828).copy(alpha = 0.8f)
+                                    )
+                                }
+                            }
                         }
 
-                        Icon(
-                            imageVector = Icons.Default.MoneyOff,
-                            contentDescription = null,
-                            tint = Color(0xFFB71C1C)
-                        )
+                        Spacer(modifier = Modifier.height(12.dp))
+
+                        // Large Total Value
+                        Surface(
+                            shape = RoundedCornerShape(10.dp),
+                            color = Color.White.copy(alpha = 0.9f),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    text = "Total Nilai Hutang:",
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = Color(0xFF5D4037)
+                                )
+                                Text(
+                                    text = Formatters.formatRupiah(totalHutangTerdaftar),
+                                    fontSize = 16.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = Color(0xFFB71C1C)
+                                )
+                            }
+                        }
+
+                        Spacer(modifier = Modifier.height(8.dp))
+
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Card(
+                                modifier = Modifier.weight(1f),
+                                shape = RoundedCornerShape(10.dp),
+                                colors = CardDefaults.cardColors(containerColor = Color.White.copy(alpha = 0.85f))
+                            ) {
+                                Column(modifier = Modifier.padding(10.dp)) {
+                                    Text(
+                                        text = "Sisa Belum Lunas",
+                                        fontSize = 10.sp,
+                                        fontWeight = FontWeight.Medium,
+                                        color = Color(0xFFD32F2F)
+                                    )
+                                    Spacer(modifier = Modifier.height(2.dp))
+                                    Text(
+                                        text = Formatters.formatRupiah(totalHutangBelumLunas),
+                                        fontSize = 13.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = Color(0xFFC62828)
+                                    )
+                                }
+                            }
+
+                            Card(
+                                modifier = Modifier.weight(1f),
+                                shape = RoundedCornerShape(10.dp),
+                                colors = CardDefaults.cardColors(containerColor = Color.White.copy(alpha = 0.85f))
+                            ) {
+                                Column(modifier = Modifier.padding(10.dp)) {
+                                    Text(
+                                        text = "Sudah Terbayar",
+                                        fontSize = 10.sp,
+                                        fontWeight = FontWeight.Medium,
+                                        color = Color(0xFF2E7D32)
+                                    )
+                                    Spacer(modifier = Modifier.height(2.dp))
+                                    Text(
+                                        text = Formatters.formatRupiah(totalHutangSudahBayar),
+                                        fontSize = 13.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = Color(0xFF1B5E20)
+                                    )
+                                }
+                            }
+                        }
                     }
                 }
             }

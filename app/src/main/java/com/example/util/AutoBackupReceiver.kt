@@ -15,9 +15,19 @@ class AutoBackupReceiver : BroadcastReceiver() {
         CoroutineScope(Dispatchers.IO).launch {
             try {
                 val action = intent.action
-                if (action == AutoBackupManager.ACTION_AUTO_BACKUP ||
-                    action == Intent.ACTION_BOOT_COMPLETED ||
-                    action == Intent.ACTION_MY_PACKAGE_REPLACED
+                if (action == Intent.ACTION_MY_PACKAGE_REPLACED) {
+                    val db = AppDatabase.getDatabase(context)
+                    val items = db.itemDao().getAllItemsList()
+                    if (items.isEmpty()) {
+                        // After update, if database was empty, auto-recover from snapshot
+                        AppBackupUtils.restoreFromLatestAutoSnapshot(context, db)
+                    } else {
+                        // After update, immediately refresh safe snapshot
+                        AppBackupUtils.saveContinuousSnapshot(context, db)
+                    }
+                    AutoBackupManager.scheduleDailyMidnightAlarm(context)
+                } else if (action == AutoBackupManager.ACTION_AUTO_BACKUP ||
+                    action == Intent.ACTION_BOOT_COMPLETED
                 ) {
                     val db = AppDatabase.getDatabase(context)
                     if (AutoBackupManager.isAutoBackupEnabled(context)) {

@@ -200,6 +200,7 @@ fun SearchableItemAutocomplete(
                             }
 
                             val inDraftQty = draftItemQuantities[item.id] ?: 0
+                            val totalStk = item.totalStokCombined
 
                             Column(horizontalAlignment = Alignment.End) {
                                 if (inDraftQty > 0) {
@@ -220,16 +221,23 @@ fun SearchableItemAutocomplete(
 
                                 Surface(
                                     shape = RoundedCornerShape(12.dp),
-                                    color = if (item.stok < 10) Color(0xFFFFEBEE) else Color(0xFFE8F5E9)
+                                    color = if (totalStk <= 0) Color(0xFFFFEBEE) else if (totalStk < 10) Color(0xFFFFF3E0) else Color(0xFFE8F5E9)
                                 ) {
                                     Text(
-                                        text = "Stok: ${item.stok}",
+                                        text = if (totalStk <= 0) "Habis (0)" else "Total: $totalStk",
                                         fontWeight = FontWeight.Bold,
                                         fontSize = 12.sp,
-                                        color = if (item.stok < 10) Color(0xFFD32F2F) else Color(0xFF2E7D32),
+                                        color = if (totalStk <= 0) Color(0xFFD32F2F) else if (totalStk < 10) Color(0xFFE65100) else Color(0xFF2E7D32),
                                         modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
                                     )
                                 }
+
+                                Text(
+                                    text = "G:${item.actualStokUtama} | T:${item.actualStokCabang}",
+                                    fontSize = 10.sp,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier.padding(top = 2.dp)
+                                )
                             }
                         }
                     }
@@ -259,7 +267,8 @@ fun SearchableItemAutocomplete(
         val draftQty = draftItemQuantities[item.id] ?: 0
         val parsedInputQty = qtyInputString.toIntOrNull() ?: 0
         val totalAfterAdd = draftQty + parsedInputQty
-        val maxAvailableStock = if (isPenjualanMode) item.stok - draftQty else Int.MAX_VALUE
+        val totalStock = item.totalStokCombined
+        val maxAvailableStock = if (isPenjualanMode) totalStock - draftQty else Int.MAX_VALUE
         val isExceedingStock = isPenjualanMode && (parsedInputQty > maxAvailableStock)
 
         AlertDialog(
@@ -311,10 +320,26 @@ fun SearchableItemAutocomplete(
                             }
                             Spacer(modifier = Modifier.height(4.dp))
                             Text(
-                                text = if (isPenjualanMode) "Stok Tersedia: ${item.stok} unit" else "Stok Saat Ini: ${item.stok} unit",
+                                text = "Total Stok: $totalStock unit (Gudang: ${item.actualStokUtama} | Toko: ${item.actualStokCabang})",
                                 fontSize = 12.sp,
                                 fontWeight = FontWeight.SemiBold,
-                                color = if (isPenjualanMode && item.stok < 10) Color(0xFFD32F2F) else MaterialTheme.colorScheme.onSurfaceVariant
+                                color = if (isPenjualanMode && totalStock < 10) Color(0xFFD32F2F) else MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+
+                    if (isPenjualanMode && (item.actualStokUtama == 0 || item.actualStokCabang == 0) && totalStock > 0) {
+                        Surface(
+                            color = Color(0xFFE8F5E9),
+                            shape = RoundedCornerShape(8.dp),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Text(
+                                text = "⚡ Otomatis: Jika salah satu stok toko/gudang kosong (0), penjualan akan otomatis memotong dari sumber stok yang tersedia.",
+                                fontSize = 11.sp,
+                                color = Color(0xFF2E7D32),
+                                fontWeight = FontWeight.Medium,
+                                modifier = Modifier.padding(8.dp)
                             )
                         }
                     }

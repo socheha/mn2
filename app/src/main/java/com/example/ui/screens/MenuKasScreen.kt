@@ -137,13 +137,9 @@ fun MenuKasScreen(
             list.add(acc.accountType to displayName)
         }
 
-        if (allAccounts.count { it.accountType != "TUNAI" } > 1) {
-            list.add("NON_TUNAI" to "Semua Bank/E-Wallet")
-        }
-
         val registeredTypes = list.map { it.first }.toSet()
         mutations.map { it.accountType }.distinct().forEach { type ->
-            if (type !in registeredTypes && type.isNotBlank()) {
+            if (type !in registeredTypes && type.isNotBlank() && type != "NON_TUNAI") {
                 list.add(type to com.example.data.entity.CashAccountDefaults.getAccountName(type))
             }
         }
@@ -155,7 +151,6 @@ fun MenuKasScreen(
         when (selectedFilterAccount) {
             "ALL" -> mutations
             "TUNAI" -> mutations.filter { it.accountType == "TUNAI" }
-            "NON_TUNAI" -> mutations.filter { it.accountType != "TUNAI" }
             else -> mutations.filter { it.accountType.equals(selectedFilterAccount, ignoreCase = true) }
         }
     }
@@ -497,17 +492,19 @@ fun MenuKasScreen(
                         if (showClearConfirmDialog) {
                             AlertDialog(
                                 onDismissRequest = { showClearConfirmDialog = false },
-                                title = { Text("Kosongkan Semua Bank & E-Wallet?") },
-                                text = { Text("Semua akun Bank dan E-Wallet akan direset saldonya menjadi 0. Anda dapat menginput bank/e-wallet sendiri.") },
+                                title = { Text("Hapus Semua Bank & Riwayat Transfer?") },
+                                text = { Text("Semua akun Bank, E-Wallet, dan riwayat mutasi bank/transfer akan dihapus bersih.") },
                                 confirmButton = {
                                     Button(
                                         onClick = {
-                                            viewModel.clearAllBankAccounts()
+                                            viewModel.clearAllBankAccounts {
+                                                selectedFilterAccount = "ALL"
+                                            }
                                             showClearConfirmDialog = false
                                         },
                                         colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFC62828))
                                     ) {
-                                        Text("Ya, Kosongkan", color = Color.White)
+                                        Text("Ya, Hapus Semua", color = Color.White)
                                     }
                                 },
                                 dismissButton = {
