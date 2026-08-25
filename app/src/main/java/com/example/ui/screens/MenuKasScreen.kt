@@ -28,7 +28,9 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.ArrowDownward
 import androidx.compose.material.icons.filled.ArrowUpward
 import androidx.compose.material.icons.filled.Calculate
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.DeleteForever
+import androidx.compose.material.icons.filled.DeleteOutline
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.FilterList
 import androidx.compose.material.icons.filled.History
@@ -43,6 +45,7 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExposedDropdownMenuBox
@@ -118,9 +121,14 @@ fun MenuKasScreen(
     var showTransferDialog by remember { mutableStateOf(false) }
     var showEditSaldoDialog by remember { mutableStateOf(false) }
     var showClearConfirmDialog by remember { mutableStateOf(false) }
+    var showClearTunaiHistoryDialog by remember { mutableStateOf(false) }
+    var showClearTransferHistoryDialog by remember { mutableStateOf(false) }
+    var showClearFilterAccountHistoryDialog by remember { mutableStateOf(false) }
     var targetAccountForEdit by remember { mutableStateOf("TUNAI") }
     var accountToDelete by remember { mutableStateOf<com.example.data.entity.CashAccountEntity?>(null) }
+    var accountHistoryToClear by remember { mutableStateOf<com.example.data.entity.CashAccountEntity?>(null) }
     var mutationToCancel by remember { mutableStateOf<com.example.data.entity.CashMutationEntity?>(null) }
+    var mutationToDelete by remember { mutableStateOf<com.example.data.entity.CashMutationEntity?>(null) }
     var mutationToEdit by remember { mutableStateOf<com.example.data.entity.CashMutationEntity?>(null) }
 
     var selectedFilterAccount by remember { mutableStateOf("ALL") }
@@ -368,6 +376,17 @@ fun MenuKasScreen(
                                         )
                                     }
                                     IconButton(
+                                        onClick = { showClearTunaiHistoryDialog = true },
+                                        modifier = Modifier.size(28.dp)
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.DeleteOutline,
+                                            contentDescription = "Hapus Riwayat Tunai",
+                                            tint = Color(0xFFC62828),
+                                            modifier = Modifier.size(16.dp)
+                                        )
+                                    }
+                                    IconButton(
                                         onClick = {
                                             targetAccountForEdit = "TUNAI"
                                             showEditSaldoDialog = true
@@ -426,6 +445,19 @@ fun MenuKasScreen(
                                         fontSize = 13.sp,
                                         color = Color(0xFF0D47A1)
                                     )
+                                }
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    IconButton(
+                                        onClick = { showClearTransferHistoryDialog = true },
+                                        modifier = Modifier.size(28.dp)
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.DeleteOutline,
+                                            contentDescription = "Hapus Riwayat Transfer & Bank",
+                                            tint = Color(0xFFC62828),
+                                            modifier = Modifier.size(16.dp)
+                                        )
+                                    }
                                 }
                             }
                             Spacer(modifier = Modifier.height(8.dp))
@@ -657,6 +689,18 @@ fun MenuKasScreen(
                                             }
                                             Spacer(modifier = Modifier.width(2.dp))
                                             IconButton(
+                                                onClick = { accountHistoryToClear = acc },
+                                                modifier = Modifier.size(20.dp)
+                                            ) {
+                                                Icon(
+                                                    imageVector = Icons.Default.DeleteOutline,
+                                                    contentDescription = "Hapus Riwayat ${acc.accountName}",
+                                                    tint = Color(0xFFC62828),
+                                                    modifier = Modifier.size(14.dp)
+                                                )
+                                            }
+                                            Spacer(modifier = Modifier.width(2.dp))
+                                            IconButton(
                                                 onClick = { accountToDelete = acc },
                                                 modifier = Modifier.size(20.dp)
                                             ) {
@@ -690,15 +734,52 @@ fun MenuKasScreen(
             // Cash Mutations / History Section Header & Filter Tabs
             item {
                 Column(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalAlignment = Alignment.CenterHorizontally
+                    modifier = Modifier.fillMaxWidth()
                 ) {
-                    Text(
-                        text = "Riwayat Mutasi & Kas Terpisah",
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.onSurface
-                    )
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = "Riwayat Mutasi Kas & Bank",
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onSurface
+                        )
+                        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                            Surface(
+                                onClick = { showClearTunaiHistoryDialog = true },
+                                shape = RoundedCornerShape(12.dp),
+                                color = Color(0xFFFFEBEE),
+                                modifier = Modifier.height(28.dp)
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Icon(imageVector = Icons.Default.DeleteOutline, contentDescription = null, tint = Color(0xFFC62828), modifier = Modifier.size(13.dp))
+                                    Spacer(modifier = Modifier.width(3.dp))
+                                    Text("Hapus Tunai", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = Color(0xFFC62828))
+                                }
+                            }
+                            Surface(
+                                onClick = { showClearTransferHistoryDialog = true },
+                                shape = RoundedCornerShape(12.dp),
+                                color = Color(0xFFEDE7F6),
+                                modifier = Modifier.height(28.dp)
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Icon(imageVector = Icons.Default.DeleteOutline, contentDescription = null, tint = Color(0xFF512DA8), modifier = Modifier.size(13.dp))
+                                    Spacer(modifier = Modifier.width(3.dp))
+                                    Text("Hapus Transfer", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = Color(0xFF512DA8))
+                                }
+                            }
+                        }
+                    }
                     Spacer(modifier = Modifier.height(10.dp))
 
                     // Horizontal Scrollable Filter Tabs Row for Every Added Account
@@ -752,7 +833,7 @@ fun MenuKasScreen(
                             horizontalArrangement = Arrangement.SpaceBetween,
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Column {
+                            Column(modifier = Modifier.weight(1f)) {
                                 Text(
                                     text = "Riwayat Akun: $selectedAccountLabel",
                                     fontWeight = FontWeight.Bold,
@@ -765,7 +846,10 @@ fun MenuKasScreen(
                                     color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.8f)
                                 )
                             }
-                            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                            Row(
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
                                 Column(horizontalAlignment = Alignment.End) {
                                     Text("Total Masuk", fontSize = 10.sp, color = Color(0xFF2E7D32), fontWeight = FontWeight.Medium)
                                     Text(Formatters.formatRupiah(totalMasukFiltered), fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Color(0xFF2E7D32))
@@ -773,6 +857,19 @@ fun MenuKasScreen(
                                 Column(horizontalAlignment = Alignment.End) {
                                     Text("Total Keluar", fontSize = 10.sp, color = Color(0xFFC62828), fontWeight = FontWeight.Medium)
                                     Text(Formatters.formatRupiah(totalKeluarFiltered), fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Color(0xFFC62828))
+                                }
+                                IconButton(
+                                    onClick = { showClearFilterAccountHistoryDialog = true },
+                                    modifier = Modifier
+                                        .size(28.dp)
+                                        .background(Color(0xFFFFEBEE), CircleShape)
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.DeleteOutline,
+                                        contentDescription = "Hapus Riwayat $selectedAccountLabel",
+                                        tint = Color(0xFFC62828),
+                                        modifier = Modifier.size(16.dp)
+                                    )
                                 }
                             }
                         }
@@ -905,7 +1002,19 @@ fun MenuKasScreen(
                                             modifier = Modifier.size(14.dp)
                                         )
                                     }
-                                    Spacer(modifier = Modifier.width(4.dp))
+                                    Spacer(modifier = Modifier.width(2.dp))
+                                    IconButton(
+                                        onClick = { mutationToDelete = mutation },
+                                        modifier = Modifier.size(24.dp)
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.DeleteOutline,
+                                            contentDescription = "Hapus Riwayat",
+                                            tint = Color(0xFFC62828),
+                                            modifier = Modifier.size(14.dp)
+                                        )
+                                    }
+                                    Spacer(modifier = Modifier.width(2.dp))
                                     TextButton(
                                         onClick = { mutationToCancel = mutation },
                                         contentPadding = PaddingValues(0.dp),
@@ -1627,6 +1736,290 @@ fun MenuKasScreen(
             },
             dismissButton = {
                 TextButton(onClick = { showClearConfirmDialog = false }) {
+                    Text("Batal")
+                }
+            }
+        )
+    }
+
+    // Dialog Hapus Riwayat Kas Tunai Saja
+    if (showClearTunaiHistoryDialog) {
+        val context = androidx.compose.ui.platform.LocalContext.current
+        var resetBalance by remember { mutableStateOf(false) }
+        AlertDialog(
+            onDismissRequest = { showClearTunaiHistoryDialog = false },
+            title = { Text("Hapus Riwayat Kas Tunai?", fontWeight = FontWeight.Bold, color = Color(0xFFC62828)) },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Text(
+                        "Semua riwayat mutasi transaksi Tunai akan dihapus dari daftar riwayat.",
+                        fontSize = 13.sp
+                    )
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.clickable { resetBalance = !resetBalance }
+                    ) {
+                        Checkbox(
+                            checked = resetBalance,
+                            onCheckedChange = { resetBalance = it }
+                        )
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text("Reset juga saldo Kas Tunai menjadi Rp 0", fontSize = 12.sp)
+                    }
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        viewModel.clearTunaiHistory(resetBalance = resetBalance) {
+                            showClearTunaiHistoryDialog = false
+                            Toast.makeText(context, "Riwayat kas tunai berhasil dihapus!", Toast.LENGTH_SHORT).show()
+                        }
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFC62828))
+                ) {
+                    Text("Ya, Hapus Riwayat Tunai", fontWeight = FontWeight.Bold)
+                }
+            },
+            dismissButton = {
+                OutlinedButton(onClick = { showClearTunaiHistoryDialog = false }) {
+                    Text("Batal")
+                }
+            }
+        )
+    }
+
+    // Dialog Hapus Riwayat Transfer & Bank Saja
+    if (showClearTransferHistoryDialog) {
+        val context = androidx.compose.ui.platform.LocalContext.current
+        var resetBalances by remember { mutableStateOf(false) }
+        var clearTransferOnly by remember { mutableStateOf(false) }
+
+        AlertDialog(
+            onDismissRequest = { showClearTransferHistoryDialog = false },
+            title = { Text("Hapus Riwayat Kas Bank / Transfer?", fontWeight = FontWeight.Bold, color = Color(0xFFC62828)) },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Text(
+                        if (clearTransferOnly)
+                            "Semua catatan riwayat transfer antar rekening akan dihapus."
+                        else
+                            "Semua riwayat mutasi transaksi Bank, E-Wallet, dan Transfer akan dihapus bersih.",
+                        fontSize = 13.sp
+                    )
+
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.clickable { clearTransferOnly = !clearTransferOnly }
+                    ) {
+                        Checkbox(
+                            checked = clearTransferOnly,
+                            onCheckedChange = { clearTransferOnly = it }
+                        )
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text("Hanya riwayat transaksi Transfer saja", fontSize = 12.sp)
+                    }
+
+                    if (!clearTransferOnly) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.clickable { resetBalances = !resetBalances }
+                        ) {
+                            Checkbox(
+                                checked = resetBalances,
+                                onCheckedChange = { resetBalances = it }
+                            )
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text("Reset juga saldo seluruh Bank/E-Wallet menjadi Rp 0", fontSize = 12.sp)
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        if (clearTransferOnly) {
+                            viewModel.clearTransferOnlyHistory {
+                                showClearTransferHistoryDialog = false
+                                Toast.makeText(context, "Riwayat transfer berhasil dihapus!", Toast.LENGTH_SHORT).show()
+                            }
+                        } else {
+                            viewModel.clearBankAndTransferHistory(resetBalances = resetBalances) {
+                                showClearTransferHistoryDialog = false
+                                Toast.makeText(context, "Riwayat kas bank & transfer berhasil dihapus!", Toast.LENGTH_SHORT).show()
+                            }
+                        }
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFC62828))
+                ) {
+                    Text(if (clearTransferOnly) "Hapus Riwayat Transfer" else "Hapus Semua Riwayat Bank", fontWeight = FontWeight.Bold)
+                }
+            },
+            dismissButton = {
+                OutlinedButton(onClick = { showClearTransferHistoryDialog = false }) {
+                    Text("Batal")
+                }
+            }
+        )
+    }
+
+    // Dialog Hapus Riwayat Akun Bank/E-Wallet Spesifik
+    accountHistoryToClear?.let { acc ->
+        val context = androidx.compose.ui.platform.LocalContext.current
+        var resetBalance by remember { mutableStateOf(false) }
+        AlertDialog(
+            onDismissRequest = { accountHistoryToClear = null },
+            title = { Text("Hapus Riwayat ${acc.accountName}?", fontWeight = FontWeight.Bold, color = Color(0xFFC62828)) },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Text(
+                        "Semua riwayat mutasi transaksi pada akun ${acc.accountName} akan dihapus.",
+                        fontSize = 13.sp
+                    )
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.clickable { resetBalance = !resetBalance }
+                    ) {
+                        Checkbox(
+                            checked = resetBalance,
+                            onCheckedChange = { resetBalance = it }
+                        )
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text("Reset saldo ${acc.accountName} menjadi Rp 0", fontSize = 12.sp)
+                    }
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        viewModel.clearHistoryByAccount(acc.accountType, resetBalance = resetBalance) {
+                            accountHistoryToClear = null
+                            Toast.makeText(context, "Riwayat ${acc.accountName} berhasil dihapus!", Toast.LENGTH_SHORT).show()
+                        }
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFC62828))
+                ) {
+                    Text("Ya, Hapus Riwayat", fontWeight = FontWeight.Bold)
+                }
+            },
+            dismissButton = {
+                OutlinedButton(onClick = { accountHistoryToClear = null }) {
+                    Text("Batal")
+                }
+            }
+        )
+    }
+
+    // Dialog Hapus Riwayat Akun Tertentu yang sedang difilter
+    if (showClearFilterAccountHistoryDialog) {
+        val context = androidx.compose.ui.platform.LocalContext.current
+        var resetBalance by remember { mutableStateOf(false) }
+        AlertDialog(
+            onDismissRequest = { showClearFilterAccountHistoryDialog = false },
+            title = { Text("Hapus Riwayat $selectedAccountLabel?", fontWeight = FontWeight.Bold, color = Color(0xFFC62828)) },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Text(
+                        "Semua riwayat transaksi mutasi untuk akun '$selectedAccountLabel' akan dihapus.",
+                        fontSize = 13.sp
+                    )
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.clickable { resetBalance = !resetBalance }
+                    ) {
+                        Checkbox(
+                            checked = resetBalance,
+                            onCheckedChange = { resetBalance = it }
+                        )
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text("Reset juga saldo akun $selectedAccountLabel menjadi Rp 0", fontSize = 12.sp)
+                    }
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        viewModel.clearHistoryByAccount(selectedFilterAccount, resetBalance = resetBalance) {
+                            showClearFilterAccountHistoryDialog = false
+                            Toast.makeText(context, "Riwayat $selectedAccountLabel berhasil dihapus!", Toast.LENGTH_SHORT).show()
+                        }
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFC62828))
+                ) {
+                    Text("Ya, Hapus Riwayat", fontWeight = FontWeight.Bold)
+                }
+            },
+            dismissButton = {
+                OutlinedButton(onClick = { showClearFilterAccountHistoryDialog = false }) {
+                    Text("Batal")
+                }
+            }
+        )
+    }
+
+    // Dialog Konfirmasi Hapus Satu Transaksi Mutasi
+    mutationToDelete?.let { mut ->
+        val context = androidx.compose.ui.platform.LocalContext.current
+        var revertBalanceOption by remember { mutableStateOf(false) }
+        AlertDialog(
+            onDismissRequest = { mutationToDelete = null },
+            title = { Text("Hapus Riwayat Transaksi?", fontWeight = FontWeight.Bold, color = Color(0xFFC62828)) },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Text("Apakah Anda yakin ingin menghapus catatan mutasi berikut dari riwayat?", fontSize = 13.sp)
+                    Surface(
+                        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                        shape = RoundedCornerShape(8.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Column(modifier = Modifier.padding(10.dp)) {
+                            Text(
+                                text = "${mut.kategori} • ${Formatters.formatRupiah(kotlin.math.abs(mut.nominal))}",
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 13.sp
+                            )
+                            Text(
+                                text = "Akun: ${com.example.data.entity.CashAccountDefaults.getAccountName(mut.accountType)} | Tanggal: ${mut.tanggal}",
+                                fontSize = 11.sp,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            if (mut.keterangan.isNotBlank()) {
+                                Text(
+                                    text = mut.keterangan,
+                                    fontSize = 11.sp,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        }
+                    }
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.clickable { revertBalanceOption = !revertBalanceOption }
+                    ) {
+                        Checkbox(
+                            checked = revertBalanceOption,
+                            onCheckedChange = { revertBalanceOption = it }
+                        )
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text("Kembalikan / Revert saldo akun", fontSize = 12.sp)
+                    }
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        viewModel.deleteCashMutationDirect(mut.id, revertBalance = revertBalanceOption) {
+                            mutationToDelete = null
+                            Toast.makeText(context, "Catatan mutasi berhasil dihapus!", Toast.LENGTH_SHORT).show()
+                        }
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFC62828))
+                ) {
+                    Text("Ya, Hapus", fontWeight = FontWeight.Bold)
+                }
+            },
+            dismissButton = {
+                OutlinedButton(onClick = { mutationToDelete = null }) {
                     Text("Batal")
                 }
             }

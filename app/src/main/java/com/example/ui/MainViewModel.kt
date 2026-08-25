@@ -623,9 +623,97 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    fun clearBankAndTransferHistory(onSuccess: () -> Unit = {}) {
+    fun clearTunaiHistory(resetBalance: Boolean = false, onSuccess: () -> Unit = {}) {
+        viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            cashDao.deleteAllTunaiMutations()
+            if (resetBalance) {
+                val acc = cashDao.getAccountDirect("TUNAI")
+                if (acc != null) {
+                    cashDao.insertOrUpdateAccount(acc.copy(saldo = 0.0, lastUpdated = System.currentTimeMillis()))
+                }
+            }
+            kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
+                onSuccess()
+            }
+        }
+    }
+
+    fun clearBankAndTransferHistory(resetBalances: Boolean = false, onSuccess: () -> Unit = {}) {
         viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
             cashDao.deleteAllBankAndTransferMutations()
+            if (resetBalances) {
+                val allAccs = cashDao.getAllAccountsList()
+                allAccs.filter { it.accountType != "TUNAI" }.forEach { acc ->
+                    cashDao.insertOrUpdateAccount(acc.copy(saldo = 0.0, lastUpdated = System.currentTimeMillis()))
+                }
+            }
+            kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
+                onSuccess()
+            }
+        }
+    }
+
+    fun clearTransferOnlyHistory(onSuccess: () -> Unit = {}) {
+        viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            cashDao.deleteAllTransferOnlyMutations()
+            kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
+                onSuccess()
+            }
+        }
+    }
+
+    fun clearHistoryByAccount(accountType: String, resetBalance: Boolean = false, onSuccess: () -> Unit = {}) {
+        viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            if (accountType == "ALL") {
+                cashDao.deleteAllCashMutations()
+                if (resetBalance) {
+                    val allAccs = cashDao.getAllAccountsList()
+                    allAccs.forEach { acc ->
+                        cashDao.insertOrUpdateAccount(acc.copy(saldo = 0.0, lastUpdated = System.currentTimeMillis()))
+                    }
+                }
+            } else if (accountType == "TUNAI") {
+                cashDao.deleteAllTunaiMutations()
+                if (resetBalance) {
+                    val acc = cashDao.getAccountDirect("TUNAI")
+                    if (acc != null) {
+                        cashDao.insertOrUpdateAccount(acc.copy(saldo = 0.0, lastUpdated = System.currentTimeMillis()))
+                    }
+                }
+            } else {
+                cashDao.deleteMutationsByAccount(accountType)
+                if (resetBalance) {
+                    val acc = cashDao.getAccountDirect(accountType)
+                    if (acc != null) {
+                        cashDao.insertOrUpdateAccount(acc.copy(saldo = 0.0, lastUpdated = System.currentTimeMillis()))
+                    }
+                }
+            }
+            kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
+                onSuccess()
+            }
+        }
+    }
+
+    fun deleteCashMutationDirect(id: Long, revertBalance: Boolean = false, onSuccess: () -> Unit = {}) {
+        viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            if (revertBalance) {
+                val mutation = cashDao.getMutationById(id)
+                if (mutation != null) {
+                    val currentAccount = cashDao.getAccountDirect(mutation.accountType)
+                    if (currentAccount != null) {
+                        val newSaldo = if (mutation.jenis == "MASUK") {
+                            currentAccount.saldo - mutation.nominal
+                        } else if (mutation.jenis == "KELUAR") {
+                            currentAccount.saldo + mutation.nominal
+                        } else {
+                            currentAccount.saldo
+                        }
+                        cashDao.insertOrUpdateAccount(currentAccount.copy(saldo = newSaldo, lastUpdated = System.currentTimeMillis()))
+                    }
+                }
+            }
+            cashDao.deleteMutation(id)
             kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
                 onSuccess()
             }

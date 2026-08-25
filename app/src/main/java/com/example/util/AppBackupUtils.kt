@@ -788,6 +788,34 @@ object AppBackupUtils {
                 }
             }
         }
+
+        // Also check Public Download folder for auto backup and manual exports
+        try {
+            val downloadDir = File(android.os.Environment.getExternalStoragePublicDirectory(android.os.Environment.DIRECTORY_DOWNLOADS), "SmartStock_AutoBackup")
+            if (downloadDir.exists()) {
+                downloadDir.listFiles { _, name -> name.endsWith(".json") }?.let {
+                    for (f in it) {
+                        if (!filesList.any { existing -> existing.absolutePath == f.absolutePath } && f.length() > 20) {
+                            filesList.add(f)
+                        }
+                    }
+                }
+            }
+
+            val docDir = File(android.os.Environment.getExternalStoragePublicDirectory(android.os.Environment.DIRECTORY_DOCUMENTS), "SmartStock_Backups")
+            if (docDir.exists()) {
+                docDir.listFiles { _, name -> name.endsWith(".json") }?.let {
+                    for (f in it) {
+                        if (!filesList.any { existing -> existing.absolutePath == f.absolutePath } && f.length() > 20) {
+                            filesList.add(f)
+                        }
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+
         return filesList.sortedByDescending { it.lastModified() }
     }
 

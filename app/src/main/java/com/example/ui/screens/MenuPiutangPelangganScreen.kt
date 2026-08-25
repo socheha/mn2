@@ -1,7 +1,9 @@
 package com.example.ui.screens
 
 import android.widget.Toast
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -11,27 +13,29 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AccountBalanceWallet
-import androidx.compose.material.icons.filled.CalendarToday
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.CalendarToday
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Clear
-import androidx.compose.material.icons.filled.Search
-import androidx.compose.material3.IconButton
-import androidx.compose.material3.OutlinedTextFieldDefaults
-import androidx.compose.material.icons.filled.Payment
-import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material.icons.filled.History
-import androidx.compose.foundation.layout.heightIn
-import androidx.compose.foundation.layout.size
+import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.Payment
+import androidx.compose.material.icons.filled.Person
+import androidx.compose.material.icons.filled.ReceiptLong
+import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -41,9 +45,11 @@ import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -88,6 +94,21 @@ fun MenuPiutangPelangganScreen(
     val totalPiutangTerdaftar = remember(receivablesList) { receivablesList.sumOf { it.nominalAwal } }
     val totalPiutangBelumLunas = remember(receivablesList) { receivablesList.sumOf { it.nominalSisa } }
     val totalPiutangSudahTertagih = remember(receivablesList) { receivablesList.sumOf { (it.nominalAwal - it.nominalSisa).coerceAtLeast(0.0) } }
+
+    val searchMatchingAll = remember(receivablesList, searchQuery) {
+        if (searchQuery.isBlank()) emptyList()
+        else receivablesList.filter { item ->
+            item.namaPelanggan.contains(searchQuery, ignoreCase = true) ||
+                    item.nomorHp.contains(searchQuery, ignoreCase = true) ||
+                    item.catatan.contains(searchQuery, ignoreCase = true)
+        }
+    }
+    val searchTotalSisa = remember(searchMatchingAll) { searchMatchingAll.sumOf { it.nominalSisa } }
+    val searchTotalAwal = remember(searchMatchingAll) { searchMatchingAll.sumOf { it.nominalAwal } }
+    val searchTotalDibayar = remember(searchMatchingAll) { (searchTotalAwal - searchTotalSisa).coerceAtLeast(0.0) }
+    val searchBelumLunasCount = remember(searchMatchingAll) { searchMatchingAll.count { it.nominalSisa > 0 && it.status != "Lunas" } }
+    val searchTotalNotaCount = remember(searchMatchingAll) { searchMatchingAll.size }
+    val distinctCustomerNames = remember(searchMatchingAll) { searchMatchingAll.map { it.namaPelanggan }.distinct() }
 
     val filteredReceivables = remember(receivablesList, searchQuery, selectedFilter) {
         receivablesList.filter { item ->
@@ -312,6 +333,181 @@ fun MenuPiutangPelangganScreen(
                 }
             }
 
+            // Highlight Card: Sisa Hutang Pelanggan Hasil Pencarian
+            if (searchQuery.isNotBlank() && searchMatchingAll.isNotEmpty()) {
+                item {
+                    Card(
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(14.dp),
+                        colors = CardDefaults.cardColors(
+                            containerColor = if (searchTotalSisa > 0) Color(0xFFFFF8E1) else Color(0xFFE8F5E9)
+                        ),
+                        border = BorderStroke(
+                            width = 1.dp,
+                            color = if (searchTotalSisa > 0) Color(0xFFFFB74D) else Color(0xFFA5D6A7)
+                        )
+                    ) {
+                        Column(modifier = Modifier.padding(14.dp)) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    modifier = Modifier.weight(1f)
+                                ) {
+                                    Box(
+                                        modifier = Modifier
+                                            .size(34.dp)
+                                            .background(
+                                                if (searchTotalSisa > 0) Color(0xFFE65100) else Color(0xFF2E7D32),
+                                                CircleShape
+                                            ),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Icon(
+                                            imageVector = if (searchTotalSisa > 0) Icons.Default.Person else Icons.Default.CheckCircle,
+                                            contentDescription = null,
+                                            tint = Color.White,
+                                            modifier = Modifier.size(18.dp)
+                                        )
+                                    }
+                                    Spacer(modifier = Modifier.width(10.dp))
+                                    Column {
+                                        Text(
+                                            text = if (distinctCustomerNames.size == 1) "Pelanggan: ${distinctCustomerNames.first()}" else "Hasil Pencarian: \"$searchQuery\"",
+                                            fontSize = 14.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            color = if (searchTotalSisa > 0) Color(0xFFBF360C) else Color(0xFF1B5E20)
+                                        )
+                                        Text(
+                                            text = "$searchTotalNotaCount Nota Piutang Tercatat",
+                                            fontSize = 11.sp,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                    }
+                                }
+
+                                Surface(
+                                    shape = RoundedCornerShape(8.dp),
+                                    color = if (searchTotalSisa > 0) Color(0xFFFFE0B2) else Color(0xFFC8E6C9)
+                                ) {
+                                    Text(
+                                        text = if (searchTotalSisa > 0) "$searchBelumLunasCount Belum Lunas" else "Semua Lunas",
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = if (searchTotalSisa > 0) Color(0xFFE65100) else Color(0xFF2E7D32),
+                                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                                    )
+                                }
+                            }
+
+                            Spacer(modifier = Modifier.height(10.dp))
+
+                            // Highlighted Box for Sisa Hutang yang Belum Dibayar
+                            Surface(
+                                shape = RoundedCornerShape(10.dp),
+                                color = Color.White,
+                                shadowElevation = 1.dp,
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Column(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(horizontal = 14.dp, vertical = 10.dp)
+                                ) {
+                                    Text(
+                                        text = "SISA HUTANG / PIUTANG BELUM DIBAYAR",
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = if (searchTotalSisa > 0) Color(0xFFC62828) else Color(0xFF2E7D32)
+                                    )
+                                    Spacer(modifier = Modifier.height(2.dp))
+                                    Text(
+                                        text = Formatters.formatRupiah(searchTotalSisa),
+                                        fontSize = 22.sp,
+                                        fontWeight = FontWeight.ExtraBold,
+                                        color = if (searchTotalSisa > 0) Color(0xFFC62828) else Color(0xFF2E7D32)
+                                    )
+                                }
+                            }
+
+                            Spacer(modifier = Modifier.height(8.dp))
+
+                            // Breakdown details row
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                Surface(
+                                    modifier = Modifier.weight(1f),
+                                    shape = RoundedCornerShape(8.dp),
+                                    color = Color.White.copy(alpha = 0.85f)
+                                ) {
+                                    Column(modifier = Modifier.padding(8.dp)) {
+                                        Text("Total Piutang Awal", fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                        Text(Formatters.formatRupiah(searchTotalAwal), fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                                    }
+                                }
+                                Surface(
+                                    modifier = Modifier.weight(1f),
+                                    shape = RoundedCornerShape(8.dp),
+                                    color = Color.White.copy(alpha = 0.85f)
+                                ) {
+                                    Column(modifier = Modifier.padding(8.dp)) {
+                                        Text("Sudah Dibayar/Tertagih", fontSize = 10.sp, color = Color(0xFF2E7D32))
+                                        Text(Formatters.formatRupiah(searchTotalDibayar), fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Color(0xFF2E7D32))
+                                    }
+                                }
+                            }
+
+                            // If multiple distinct customers match, show clickable chips for each customer
+                            if (distinctCustomerNames.size > 1) {
+                                Spacer(modifier = Modifier.height(10.dp))
+                                Text(
+                                    text = "Rincian Pelanggan yang Cocok:",
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = Color(0xFF424242)
+                                )
+                                Spacer(modifier = Modifier.height(4.dp))
+                                LazyRow(
+                                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    items(distinctCustomerNames) { cName ->
+                                        val custItems = searchMatchingAll.filter { it.namaPelanggan.equals(cName, ignoreCase = true) }
+                                        val custSisa = custItems.sumOf { it.nominalSisa }
+                                        Surface(
+                                            onClick = { searchQuery = cName },
+                                            shape = RoundedCornerShape(8.dp),
+                                            color = Color.White,
+                                            border = BorderStroke(1.dp, Color(0xFFE0E0E0))
+                                        ) {
+                                            Row(
+                                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 5.dp),
+                                                verticalAlignment = Alignment.CenterVertically
+                                            ) {
+                                                Column {
+                                                    Text(cName, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                                    Text(
+                                                        text = "Sisa: ${Formatters.formatRupiah(custSisa)}",
+                                                        fontSize = 10.sp,
+                                                        fontWeight = FontWeight.SemiBold,
+                                                        color = if (custSisa > 0) Color(0xFFC62828) else Color(0xFF2E7D32)
+                                                    )
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
             if (filteredReceivables.isEmpty()) {
                 item {
                     Card(
@@ -319,18 +515,36 @@ fun MenuPiutangPelangganScreen(
                         shape = RoundedCornerShape(12.dp),
                         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
                     ) {
-                        Text(
-                            text = if (searchQuery.isNotBlank()) "Tidak ada data piutang pelanggan yang cocok dengan pencarian '$searchQuery'." else "Belum ada catatan piutang pelanggan.",
-                            modifier = Modifier.padding(16.dp),
-                            fontSize = 13.sp,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
+                        Column(modifier = Modifier.padding(16.dp)) {
+                            Text(
+                                text = if (searchQuery.isNotBlank()) "Tidak ada data piutang pelanggan yang cocok pada tab '$selectedFilter'." else "Belum ada catatan piutang pelanggan.",
+                                fontSize = 13.sp,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            if (searchQuery.isNotBlank() && searchMatchingAll.isNotEmpty() && selectedFilter != "Semua") {
+                                Spacer(modifier = Modifier.height(8.dp))
+                                OutlinedButton(
+                                    onClick = { selectedFilter = "Semua" },
+                                    shape = RoundedCornerShape(8.dp)
+                                ) {
+                                    Text("Lihat Semua Status ($searchTotalNotaCount Nota Tersedia)", fontSize = 12.sp)
+                                }
+                            }
+                        }
                     }
                 }
             } else {
                 items(filteredReceivables, key = { it.id }) { receivable ->
+                    val customerNotes = remember(receivablesList, receivable.namaPelanggan) {
+                        receivablesList.filter { it.namaPelanggan.equals(receivable.namaPelanggan, ignoreCase = true) }
+                    }
+                    val customerTotalRemaining = remember(customerNotes) { customerNotes.sumOf { it.nominalSisa } }
+                    val customerNotesCount = remember(customerNotes) { customerNotes.size }
+
                     ReceivableCard(
                         receivable = receivable,
+                        customerTotalRemaining = customerTotalRemaining,
+                        customerNotesCount = customerNotesCount,
                         onPayment = { receivableForPayment = receivable },
                         onDirectLunas = { receivableForConfirmLunas = receivable },
                         onViewHistory = { receivableForHistory = receivable },
@@ -375,6 +589,7 @@ fun MenuPiutangPelangganScreen(
     // Add Receivable Dialog
     if (showAddDialog) {
         AddReceivableDialog(
+            existingReceivables = receivablesList,
             onDismiss = { showAddDialog = false },
             onConfirm = { nama, hp, nominal, tgl, cat, jt ->
                 viewModel.addReceivable(
@@ -591,6 +806,8 @@ fun MenuPiutangPelangganScreen(
 @Composable
 fun ReceivableCard(
     receivable: CustomerReceivableEntity,
+    customerTotalRemaining: Double = 0.0,
+    customerNotesCount: Int = 1,
     onPayment: () -> Unit,
     onDirectLunas: () -> Unit,
     onViewHistory: () -> Unit,
@@ -699,18 +916,56 @@ fun ReceivableCard(
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
                 Column {
-                    Text(text = "Nominal Awal:", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text(text = "Nominal Awal Nota:", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     Text(text = Formatters.formatRupiah(receivable.nominalAwal), fontSize = 13.sp)
                 }
 
                 Column(horizontalAlignment = Alignment.End) {
-                    Text(text = "Sisa Piutang:", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text(text = "Sisa Nota Ini:", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     Text(
                         text = Formatters.formatRupiah(receivable.nominalSisa),
                         fontSize = 15.sp,
                         fontWeight = FontWeight.Bold,
                         color = if (isLunas) Color(0xFF2E7D32) else MaterialTheme.colorScheme.primary
                     )
+                }
+            }
+
+            // If customer has multiple notes or active cumulative debt, display banner
+            if (customerNotesCount > 1) {
+                Spacer(modifier = Modifier.height(6.dp))
+                Surface(
+                    shape = RoundedCornerShape(8.dp),
+                    color = if (customerTotalRemaining > 0) Color(0xFFFFF3E0) else Color(0xFFE8F5E9),
+                    border = BorderStroke(1.dp, if (customerTotalRemaining > 0) Color(0xFFFFCC80) else Color(0xFFA5D6A7)),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(
+                                imageVector = Icons.Default.Info,
+                                contentDescription = null,
+                                tint = if (customerTotalRemaining > 0) Color(0xFFE65100) else Color(0xFF2E7D32),
+                                modifier = Modifier.size(14.dp).padding(end = 4.dp)
+                            )
+                            Text(
+                                text = "Total Sisa Hutang Pelanggan ($customerNotesCount nota):",
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Medium,
+                                color = if (customerTotalRemaining > 0) Color(0xFFBF360C) else Color(0xFF1B5E20)
+                            )
+                        }
+                        Text(
+                            text = Formatters.formatRupiah(customerTotalRemaining),
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = if (customerTotalRemaining > 0) Color(0xFFC62828) else Color(0xFF2E7D32)
+                        )
+                    }
                 }
             }
 
@@ -777,6 +1032,7 @@ fun ReceivableCard(
 
 @Composable
 fun AddReceivableDialog(
+    existingReceivables: List<CustomerReceivableEntity> = emptyList(),
     onDismiss: () -> Unit,
     onConfirm: (nama: String, hp: String, nominal: Double, tgl: String, cat: String, jatuhTempo: String) -> Unit
 ) {
@@ -787,11 +1043,58 @@ fun AddReceivableDialog(
     var jatuhTempo by remember { mutableStateOf(Formatters.getAddDaysDate(Formatters.getCurrentDateFormatted(), 14)) }
     var catatan by remember { mutableStateOf("") }
 
+    val distinctCustomers = remember(existingReceivables) {
+        existingReceivables.map { it.namaPelanggan }.distinct()
+    }
+    val matchedCustomerNotes = remember(existingReceivables, nama) {
+        if (nama.isBlank()) emptyList()
+        else existingReceivables.filter { it.namaPelanggan.equals(nama.trim(), ignoreCase = true) }
+    }
+    val matchedCustomerSisa = remember(matchedCustomerNotes) {
+        matchedCustomerNotes.sumOf { it.nominalSisa }
+    }
+    val matchedCustomerUnpaidCount = remember(matchedCustomerNotes) {
+        matchedCustomerNotes.count { it.nominalSisa > 0 && it.status != "Lunas" }
+    }
+
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text("Tambah Piutang Pelanggan", fontWeight = FontWeight.Bold) },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                // Quick selection of existing customers
+                if (distinctCustomers.isNotEmpty() && nama.isBlank()) {
+                    Column {
+                        Text(
+                            text = "Pilih Pelanggan Tersedia:",
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        Spacer(modifier = Modifier.height(4.dp))
+                        LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                            items(distinctCustomers.take(5)) { custName ->
+                                val custItems = existingReceivables.filter { it.namaPelanggan.equals(custName, ignoreCase = true) }
+                                val custSisa = custItems.sumOf { it.nominalSisa }
+                                FilterChip(
+                                    selected = false,
+                                    onClick = {
+                                        nama = custName
+                                        val latestHp = custItems.firstOrNull { it.nomorHp.isNotBlank() }?.nomorHp.orEmpty()
+                                        if (latestHp.isNotBlank()) hp = latestHp
+                                    },
+                                    label = {
+                                        Text(
+                                            text = if (custSisa > 0) "$custName (Sisa: ${Formatters.formatRupiah(custSisa)})" else custName,
+                                            fontSize = 11.sp
+                                        )
+                                    }
+                                )
+                            }
+                        }
+                    }
+                }
+
                 OutlinedTextField(
                     value = nama,
                     onValueChange = { nama = it },
@@ -799,6 +1102,28 @@ fun AddReceivableDialog(
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth()
                 )
+
+                // Info banner if current customer has outstanding unpaid debt
+                if (matchedCustomerNotes.isNotEmpty()) {
+                    Surface(
+                        shape = RoundedCornerShape(8.dp),
+                        color = if (matchedCustomerSisa > 0) Color(0xFFFFF3E0) else Color(0xFFE8F5E9),
+                        border = BorderStroke(1.dp, if (matchedCustomerSisa > 0) Color(0xFFFFCC80) else Color(0xFFA5D6A7)),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Column(modifier = Modifier.padding(8.dp)) {
+                            Text(
+                                text = if (matchedCustomerSisa > 0)
+                                    "⚠️ Pelanggan memiliki sisa hutang berjalan: ${Formatters.formatRupiah(matchedCustomerSisa)} ($matchedCustomerUnpaidCount nota belum lunas)"
+                                else
+                                    "✓ Semua piutang sebelumnya dari pelanggan ini telah lunas.",
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = if (matchedCustomerSisa > 0) Color(0xFFC62828) else Color(0xFF2E7D32)
+                            )
+                        }
+                    }
+                }
 
                 OutlinedTextField(
                     value = hp,

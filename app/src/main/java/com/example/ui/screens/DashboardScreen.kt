@@ -113,22 +113,15 @@ fun DashboardScreen(
             FloatingActionButton(
                 onClick = { onNavigateToMenu("penjualan") },
                 containerColor = Color(0xFFE65100),
-                contentColor = Color.White
+                contentColor = Color.White,
+                shape = CircleShape,
+                modifier = Modifier.testTag("fab_penjualan")
             ) {
-                Row(
-                    modifier = Modifier.padding(horizontal = 16.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.AddShoppingCart,
-                        contentDescription = "Kasir Keranjang Penjualan"
-                    )
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text(
-                        text = "Transaksi Penjualan",
-                        fontWeight = FontWeight.Bold
-                    )
-                }
+                Icon(
+                    imageVector = Icons.Default.AddShoppingCart,
+                    contentDescription = "Kasir Keranjang Penjualan",
+                    modifier = Modifier.size(26.dp)
+                )
             }
         }
     ) { innerPadding ->
@@ -670,7 +663,7 @@ fun DashboardScreen(
             // Executive Quick Summary Cards Grid
             item {
                 Text(
-                    text = "Ringkasan Stok & Omzet",
+                    text = "Ringkasan Stok, Piutang & Hutang",
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.Bold,
                     color = MaterialTheme.colorScheme.onBackground
@@ -705,34 +698,42 @@ fun DashboardScreen(
 
                 Spacer(modifier = Modifier.height(12.dp))
 
-                // Omzet & Income (Keuntungan / Selisih Modal) Metrics
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
                     DashboardMetricCard(
-                        title = "Omzet Hari Ini",
-                        value = Formatters.formatRupiah(todayRev),
-                        subtitle = "Penjualan Hari Ini",
-                        icon = Icons.Default.PointOfSale,
-                        containerColor = Color(0xFFE8F5E9),
-                        contentColor = Color(0xFF1B5E20),
+                        title = "Total Piutang",
+                        value = Formatters.formatRupiah(totalPiutang),
+                        subtitle = "Tagihan Pelanggan",
+                        icon = Icons.Default.AccountBalanceWallet,
+                        containerColor = Color(0xFFE0F7FA),
+                        contentColor = Color(0xFF006064),
                         modifier = Modifier.weight(1f),
-                        onClick = { onNavigateToMenu("penjualan") }
+                        onClick = { onNavigateToMenu("piutang") }
                     )
                     DashboardMetricCard(
-                        title = "Income/Laba Hari Ini",
-                        value = Formatters.formatRupiah(todayProfit),
-                        subtitle = "Keuntungan",
-                        icon = Icons.Default.Payments,
-                        containerColor = Color(0xFFDCFCE7),
-                        contentColor = Color(0xFF15803D),
+                        title = "Total Hutang",
+                        value = Formatters.formatRupiah(totalHutang),
+                        subtitle = "Hutang Supplier",
+                        icon = Icons.Default.MoneyOff,
+                        containerColor = Color(0xFFFFEBEE),
+                        contentColor = Color(0xFFB71C1C),
                         modifier = Modifier.weight(1f),
-                        onClick = { onNavigateToMenu("rekap") }
+                        onClick = { onNavigateToMenu("hutang") }
                     )
                 }
+            }
 
-                Spacer(modifier = Modifier.height(12.dp))
+            // Performa Income & Keuntungan
+            item {
+                Text(
+                    text = "Performa Keuntungan Berkala",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onBackground
+                )
+                Spacer(modifier = Modifier.height(8.dp))
 
                 Row(
                     modifier = Modifier.fillMaxWidth(),
@@ -765,50 +766,13 @@ fun DashboardScreen(
                 DashboardMetricCard(
                     title = "Income Tahunan",
                     value = Formatters.formatRupiah(yearlyProfit),
-                    subtitle = "Keuntungan 1 Tahun",
+                    subtitle = "Keuntungan 1 Tahun Berjalan",
                     icon = Icons.Default.Assessment,
                     containerColor = Color(0xFFE1F5FE),
                     contentColor = Color(0xFF0277BD),
                     modifier = Modifier.fillMaxWidth(),
                     onClick = { onNavigateToMenu("rekap") }
                 )
-            }
-
-            // Piutang & Hutang Cards
-            item {
-                Text(
-                    text = "Piutang & Hutang Belum Lunas",
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.onBackground
-                )
-                Spacer(modifier = Modifier.height(8.dp))
-
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(12.dp)
-                ) {
-                    DashboardMetricCard(
-                        title = "Total Piutang",
-                        value = Formatters.formatRupiah(totalPiutang),
-                        subtitle = "Tagihan Pelanggan",
-                        icon = Icons.Default.AccountBalanceWallet,
-                        containerColor = Color(0xFFE0F7FA),
-                        contentColor = Color(0xFF006064),
-                        modifier = Modifier.weight(1f),
-                        onClick = { onNavigateToMenu("piutang") }
-                    )
-                    DashboardMetricCard(
-                        title = "Total Hutang",
-                        value = Formatters.formatRupiah(totalHutang),
-                        subtitle = "Hutang Supplier",
-                        icon = Icons.Default.MoneyOff,
-                        containerColor = Color(0xFFFFEBEE),
-                        contentColor = Color(0xFFB71C1C),
-                        modifier = Modifier.weight(1f),
-                        onClick = { onNavigateToMenu("hutang") }
-                    )
-                }
             }
 
         // Barang Hampir Habis Section (Low Stock < 10)

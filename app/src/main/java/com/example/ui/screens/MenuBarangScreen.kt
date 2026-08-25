@@ -102,8 +102,20 @@ fun MenuBarangScreen(
     val totalNilaiModal = remember(itemsList) {
         itemsList.sumOf { (it.totalStokCombined.toDouble()) * it.hargaModal }
     }
+    val totalNilaiGudang = remember(itemsList) {
+        itemsList.sumOf { (it.actualStokUtama.toDouble()) * it.hargaModal }
+    }
+    val totalNilaiToko = remember(itemsList) {
+        itemsList.sumOf { (it.actualStokCabang.toDouble()) * it.hargaModal }
+    }
     val totalUnitStok = remember(itemsList) {
         itemsList.sumOf { it.totalStokCombined }
+    }
+    val totalUnitGudang = remember(itemsList) {
+        itemsList.sumOf { it.actualStokUtama }
+    }
+    val totalUnitToko = remember(itemsList) {
+        itemsList.sumOf { it.actualStokCabang }
     }
 
     val availableAccounts = remember(allCashAccounts) {
@@ -207,7 +219,7 @@ fun MenuBarangScreen(
                 .padding(innerPadding)
                 .background(MaterialTheme.colorScheme.background)
         ) {
-            // Summary Card: Total Nilai Seluruh Produk
+            // Summary Card: Total Nilai Seluruh Produk (2 Layer Rapi)
             item {
                 Card(
                     modifier = Modifier
@@ -217,7 +229,7 @@ fun MenuBarangScreen(
                     colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.45f)),
                     elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
                 ) {
-                    Column(modifier = Modifier.padding(16.dp)) {
+                    Column(modifier = Modifier.padding(14.dp)) {
                         Row(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.SpaceBetween,
@@ -254,37 +266,100 @@ fun MenuBarangScreen(
                             }
                         }
 
-                        Spacer(modifier = Modifier.height(12.dp))
+                        Spacer(modifier = Modifier.height(10.dp))
 
+                        // LAYER 1: Total Nilai Modal Keseluruhan (Aset Toko)
                         Surface(
                             shape = RoundedCornerShape(12.dp),
-                            color = Color.White.copy(alpha = 0.9f),
+                            color = Color.White.copy(alpha = 0.95f),
                             modifier = Modifier.fillMaxWidth()
                         ) {
                             Row(
-                                modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
+                                modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
                                 horizontalArrangement = Arrangement.SpaceBetween,
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
                                 Column {
                                     Text(
                                         text = "Total Nilai Modal Produk (Aset Toko):",
-                                        fontSize = 12.sp,
+                                        fontSize = 11.sp,
                                         fontWeight = FontWeight.SemiBold,
                                         color = Color(0xFF37474F)
                                     )
                                     Text(
-                                        text = "Dihitung dari (Total Stok × Harga Modal)",
+                                        text = "Total Aset Seluruh Stok Barang",
                                         fontSize = 10.sp,
                                         color = Color(0xFF78909C)
                                     )
                                 }
                                 Text(
                                     text = Formatters.formatRupiah(totalNilaiModal),
-                                    fontSize = 18.sp,
+                                    fontSize = 17.sp,
                                     fontWeight = FontWeight.Bold,
                                     color = MaterialTheme.colorScheme.primary
                                 )
+                            }
+                        }
+
+                        Spacer(modifier = Modifier.height(8.dp))
+
+                        // LAYER 2: 2 Kolom Rincian Nilai Stok (Gudang & Toko)
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Card(
+                                modifier = Modifier.weight(1f),
+                                shape = RoundedCornerShape(10.dp),
+                                colors = CardDefaults.cardColors(containerColor = Color.White.copy(alpha = 0.9f))
+                            ) {
+                                Column(modifier = Modifier.padding(10.dp)) {
+                                    Text(
+                                        text = "Nilai Stok Gudang",
+                                        fontSize = 10.sp,
+                                        fontWeight = FontWeight.Medium,
+                                        color = MaterialTheme.colorScheme.primary
+                                    )
+                                    Spacer(modifier = Modifier.height(2.dp))
+                                    Text(
+                                        text = Formatters.formatRupiah(totalNilaiGudang),
+                                        fontSize = 13.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = MaterialTheme.colorScheme.onSurface
+                                    )
+                                    Text(
+                                        text = "$totalUnitGudang Unit",
+                                        fontSize = 10.sp,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                            }
+
+                            Card(
+                                modifier = Modifier.weight(1f),
+                                shape = RoundedCornerShape(10.dp),
+                                colors = CardDefaults.cardColors(containerColor = Color.White.copy(alpha = 0.9f))
+                            ) {
+                                Column(modifier = Modifier.padding(10.dp)) {
+                                    Text(
+                                        text = "Nilai Stok Toko",
+                                        fontSize = 10.sp,
+                                        fontWeight = FontWeight.Medium,
+                                        color = Color(0xFF1B5E20)
+                                    )
+                                    Spacer(modifier = Modifier.height(2.dp))
+                                    Text(
+                                        text = Formatters.formatRupiah(totalNilaiToko),
+                                        fontSize = 13.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = MaterialTheme.colorScheme.onSurface
+                                    )
+                                    Text(
+                                        text = "$totalUnitToko Unit",
+                                        fontSize = 10.sp,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
                             }
                         }
                     }
@@ -711,30 +786,118 @@ fun ItemCard(
 
             Spacer(modifier = Modifier.height(10.dp))
 
+            // 2-LAYER NILAI BARANG
+            val totalStokCombined = item.totalStokCombined
+            val nilaiTotalBarang = totalStokCombined.toDouble() * item.hargaModal
+            val nilaiStokGudang = item.actualStokUtama.toDouble() * item.hargaModal
+            val nilaiStokToko = item.actualStokCabang.toDouble() * item.hargaModal
+
+            Surface(
+                shape = RoundedCornerShape(10.dp),
+                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp)) {
+                    // LAYER 1: Harga Modal Satuan & Total Nilai Barang
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text(
+                                text = "Harga Modal:",
+                                fontSize = 11.sp,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text(
+                                text = "${Formatters.formatRupiah(item.hargaModal)} / unit",
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.onSurface
+                            )
+                        }
+
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text(
+                                text = "Total Nilai:",
+                                fontSize = 11.sp,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text(
+                                text = Formatters.formatRupiah(nilaiTotalBarang),
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.primary
+                            )
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(6.dp))
+
+                    // LAYER 2: Rincian Nilai per Lokasi (Gudang & Toko)
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Surface(
+                            shape = RoundedCornerShape(4.dp),
+                            color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f)
+                        ) {
+                            Text(
+                                text = "Nilai Gudang: ${Formatters.formatRupiah(nilaiStokGudang)} (${item.actualStokUtama} unit)",
+                                fontSize = 10.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                color = MaterialTheme.colorScheme.onPrimaryContainer,
+                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                            )
+                        }
+
+                        Surface(
+                            shape = RoundedCornerShape(4.dp),
+                            color = Color(0xFFE8F5E9)
+                        ) {
+                            Text(
+                                text = "Nilai Toko: ${Formatters.formatRupiah(nilaiStokToko)} (${item.actualStokCabang} unit)",
+                                fontSize = 10.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                color = Color(0xFF1B5E20),
+                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                            )
+                        }
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(8.dp))
+
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Text(
-                    text = "Harga Modal: ${Formatters.formatRupiah(item.hargaModal)}",
-                    fontWeight = FontWeight.SemiBold,
-                    fontSize = 13.sp,
-                    color = MaterialTheme.colorScheme.primary
+                    text = "Aksi Barang",
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.Medium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
 
-                Row {
-                    IconButton(onClick = onViewHistory, modifier = Modifier.size(32.dp)) {
-                        Icon(imageVector = Icons.Default.History, contentDescription = "Riwayat", tint = MaterialTheme.colorScheme.primary)
+                Row(horizontalArrangement = Arrangement.spacedBy(2.dp)) {
+                    IconButton(onClick = onViewHistory, modifier = Modifier.size(34.dp)) {
+                        Icon(imageVector = Icons.Default.History, contentDescription = "Riwayat", tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(18.dp))
                     }
-                    IconButton(onClick = onReturn, modifier = Modifier.size(32.dp)) {
-                        Icon(imageVector = Icons.Default.AssignmentReturn, contentDescription = "Return Stok", tint = Color(0xFFE65100))
+                    IconButton(onClick = onReturn, modifier = Modifier.size(34.dp)) {
+                        Icon(imageVector = Icons.Default.AssignmentReturn, contentDescription = "Return Stok", tint = Color(0xFFE65100), modifier = Modifier.size(18.dp))
                     }
-                    IconButton(onClick = onEdit, modifier = Modifier.size(32.dp)) {
-                        Icon(imageVector = Icons.Default.Edit, contentDescription = "Edit", tint = MaterialTheme.colorScheme.primary)
+                    IconButton(onClick = onEdit, modifier = Modifier.size(34.dp)) {
+                        Icon(imageVector = Icons.Default.Edit, contentDescription = "Edit", tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(18.dp))
                     }
-                    IconButton(onClick = onDelete, modifier = Modifier.size(32.dp)) {
-                        Icon(imageVector = Icons.Default.Delete, contentDescription = "Hapus", tint = MaterialTheme.colorScheme.error)
+                    IconButton(onClick = onDelete, modifier = Modifier.size(34.dp)) {
+                        Icon(imageVector = Icons.Default.Delete, contentDescription = "Hapus", tint = MaterialTheme.colorScheme.error, modifier = Modifier.size(18.dp))
                     }
                 }
             }
