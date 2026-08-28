@@ -1,5 +1,6 @@
 package com.example.ui.screens
 
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -22,6 +23,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.ArrowForward
 import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.CompareArrows
@@ -32,6 +34,8 @@ import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Store
 import androidx.compose.material.icons.filled.Storefront
 import androidx.compose.material.icons.filled.SwapHoriz
+import androidx.compose.material.icons.filled.Warehouse
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -79,6 +83,14 @@ fun MenuStokTokoScreen(viewModel: MainViewModel) {
     val totalStockCount by viewModel.totalStockCount.collectAsState()
     val totalStockUtama by viewModel.totalStockUtama.collectAsState()
     val totalStockCabang by viewModel.totalStockCabang.collectAsState()
+
+    val allStockHistories by viewModel.allStockHistory.collectAsState(initial = emptyList())
+    val transferHistoriesCount = remember(allStockHistories) {
+        allStockHistories.count { h ->
+            h.jenis.contains("Transfer", ignoreCase = true) ||
+                    h.keterangan.contains("Transfer", ignoreCase = true)
+        }
+    }
 
     var searchQuery by remember { mutableStateOf("") }
     var selectedFilter by remember { mutableStateOf("Semua") } // "Semua", "Utama", "Cabang", "Menipis"
@@ -290,7 +302,11 @@ fun MenuStokTokoScreen(viewModel: MainViewModel) {
                 ) {
                     Icon(imageVector = Icons.Default.History, contentDescription = null, modifier = Modifier.size(16.dp))
                     Spacer(modifier = Modifier.width(4.dp))
-                    Text("Riwayat Transfer", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                    Text(
+                        text = if (transferHistoriesCount > 0) "Riwayat Transfer ($transferHistoriesCount)" else "Riwayat Transfer",
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Bold
+                    )
                 }
             }
         }
@@ -611,41 +627,78 @@ fun TransferStokDialog(
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Transfer Stok Antar Toko", fontWeight = FontWeight.Bold, fontSize = 16.sp) },
+        title = {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(imageVector = Icons.Default.SwapHoriz, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                Spacer(modifier = Modifier.width(8.dp))
+                Text("Transfer Barang Multi-Lokasi", fontWeight = FontWeight.Bold, fontSize = 16.sp)
+            }
+        },
         text = {
             Column {
-                // Pilih Barang & Search
-                Text("Cari & Pilih Barang Ditransfer:", fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                // Direction Selector Buttons
+                Text("Arah Perpindahan Stok:", fontSize = 11.sp, fontWeight = FontWeight.SemiBold, color = Color.Gray)
                 Spacer(modifier = Modifier.height(4.dp))
-
-                OutlinedTextField(
-                    value = itemSearchQuery,
-                    onValueChange = {
-                        itemSearchQuery = it
-                        itemExpanded = true
-                    },
-                    placeholder = { Text("Ketik nama atau kode barang...", fontSize = 12.sp) },
-                    leadingIcon = { Icon(Icons.Default.Search, contentDescription = null, modifier = Modifier.size(18.dp)) },
-                    trailingIcon = {
-                        if (itemSearchQuery.isNotEmpty()) {
-                            IconButton(onClick = { itemSearchQuery = "" }) {
-                                Icon(Icons.Default.Clear, contentDescription = null)
-                            }
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    val isGudangToToko = fromStore == "Gudang" || fromStore == "Toko Utama"
+                    Surface(
+                        modifier = Modifier
+                            .weight(1f)
+                            .clickable {
+                                fromStore = "Gudang"
+                                toStore = "Stok Toko"
+                                errorMessage = ""
+                            },
+                        shape = RoundedCornerShape(10.dp),
+                        color = if (isGudangToToko) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f),
+                        border = if (isGudangToToko) BorderStroke(1.5.dp, MaterialTheme.colorScheme.primary) else null
+                    ) {
+                        Column(
+                            modifier = Modifier.padding(vertical = 8.dp, horizontal = 6.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally
+                        ) {
+                            Text("🏬 Gudang ➔ 🏪 Toko", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = if (isGudangToToko) MaterialTheme.colorScheme.primary else Color.Gray)
+                            Text("Kirim ke Toko", fontSize = 10.sp, color = if (isGudangToToko) MaterialTheme.colorScheme.primary else Color.Gray)
                         }
-                    },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth().testTag("search_transfer_item_field"),
-                    shape = RoundedCornerShape(8.dp)
-                )
+                    }
 
-                Spacer(modifier = Modifier.height(6.dp))
+                    Surface(
+                        modifier = Modifier
+                            .weight(1f)
+                            .clickable {
+                                fromStore = "Stok Toko"
+                                toStore = "Gudang"
+                                errorMessage = ""
+                            },
+                        shape = RoundedCornerShape(10.dp),
+                        color = if (!isGudangToToko) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f),
+                        border = if (!isGudangToToko) BorderStroke(1.5.dp, MaterialTheme.colorScheme.primary) else null
+                    ) {
+                        Column(
+                            modifier = Modifier.padding(vertical = 8.dp, horizontal = 6.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally
+                        ) {
+                            Text("🏪 Toko ➔ 🏬 Gudang", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = if (!isGudangToToko) MaterialTheme.colorScheme.primary else Color.Gray)
+                            Text("Tarik ke Gudang", fontSize = 10.sp, color = if (!isGudangToToko) MaterialTheme.colorScheme.primary else Color.Gray)
+                        }
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(10.dp))
+
+                // Pilih Barang & Search
+                Text("Pilih Barang Ditransfer:", fontSize = 11.sp, fontWeight = FontWeight.SemiBold, color = Color.Gray)
+                Spacer(modifier = Modifier.height(4.dp))
 
                 ExposedDropdownMenuBox(
                     expanded = itemExpanded,
                     onExpandedChange = { itemExpanded = !itemExpanded }
                 ) {
                     OutlinedTextField(
-                        value = selectedItem?.let { "${it.namaBarang} (${it.kodeBarang})" } ?: "Pilih Barang Dari Daftar",
+                        value = selectedItem?.let { "${it.namaBarang} (${it.kodeBarang.ifBlank { "-" }})" } ?: "Pilih Barang Dari Daftar",
                         onValueChange = {},
                         readOnly = true,
                         trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = itemExpanded) },
@@ -686,7 +739,7 @@ fun TransferStokDialog(
                                     text = {
                                         Column {
                                             Text(item.namaBarang, fontWeight = FontWeight.Bold, fontSize = 13.sp)
-                                            Text("Gudang: ${item.actualStokUtama} | Stok Toko: ${item.actualStokCabang}", fontSize = 11.sp, color = Color.Gray)
+                                            Text("🏬 Gudang: ${item.actualStokUtama} | 🏪 Toko: ${item.actualStokCabang}", fontSize = 11.sp, color = Color.Gray)
                                         }
                                     },
                                     onClick = {
@@ -699,72 +752,45 @@ fun TransferStokDialog(
                     }
                 }
 
-                Spacer(modifier = Modifier.height(10.dp))
+                Spacer(modifier = Modifier.height(8.dp))
 
-                // Asal -> Tujuan Store Selector
-                Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text("Dari:", fontSize = 11.sp, fontWeight = FontWeight.Bold)
-                        Spacer(modifier = Modifier.height(2.dp))
-                        Row {
-                            FilterChip(
-                                selected = fromStore == "Gudang" || fromStore == "Toko Utama",
-                                onClick = {
-                                    fromStore = "Gudang"
-                                    toStore = "Stok Toko"
-                                },
-                                label = { Text("Gudang", fontSize = 11.sp) }
-                            )
-                        }
-                    }
-
-                    Icon(imageVector = Icons.Default.ArrowForward, contentDescription = null, tint = Color.Gray)
-
-                    Column(modifier = Modifier.weight(1f), horizontalAlignment = Alignment.End) {
-                        Text("Ke:", fontSize = 11.sp, fontWeight = FontWeight.Bold)
-                        Spacer(modifier = Modifier.height(2.dp))
-                        Row {
-                            FilterChip(
-                                selected = toStore == "Stok Toko" || toStore == "Toko Cabang",
-                                onClick = {
-                                    fromStore = "Gudang"
-                                    toStore = "Stok Toko"
-                                },
-                                label = { Text("Stok Toko", fontSize = 11.sp) }
-                            )
-                        }
-                    }
-                }
-
-                // Swap Direction Button
-                TextButton(
-                    onClick = {
-                        val temp = fromStore
-                        fromStore = toStore
-                        toStore = temp
-                    },
-                    modifier = Modifier.align(Alignment.CenterHorizontally)
-                ) {
-                    Icon(imageVector = Icons.Default.SwapHoriz, contentDescription = null)
-                    Spacer(modifier = Modifier.width(4.dp))
-                    Text("Tukar Arah ($fromStore ➔ $toStore)", fontSize = 11.sp)
-                }
-
+                // Live Stock Breakdown & Calculation
                 selectedItem?.let { item ->
-                    val isFromGudangOrUtama = fromStore == "Gudang" || fromStore == "Toko Utama" || fromStore.contains("Gudang", ignoreCase = true) || fromStore.contains("Utama", ignoreCase = true)
-                    val availableInFrom = if (isFromGudangOrUtama) item.actualStokUtama else item.actualStokCabang
+                    val isFromGudang = fromStore == "Gudang" || fromStore == "Toko Utama"
+                    val availableInSource = if (isFromGudang) item.actualStokUtama else item.actualStokCabang
+                    val targetCurrent = if (isFromGudang) item.actualStokCabang else item.actualStokUtama
+                    val qty = qtyText.toIntOrNull() ?: 0
+
                     Surface(
-                        color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f),
                         shape = RoundedCornerShape(8.dp),
+                        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
                         modifier = Modifier.fillMaxWidth()
                     ) {
-                        Text(
-                            text = "Stok Tersedia di $fromStore: $availableInFrom Pcs",
-                            fontSize = 12.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.primary,
-                            modifier = Modifier.padding(8.dp)
-                        )
+                        Column(modifier = Modifier.padding(8.dp)) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Text("Stok Asal ($fromStore):", fontSize = 11.sp, color = Color.Gray)
+                                Text("$availableInSource Pcs", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = if (availableInSource > 0) MaterialTheme.colorScheme.primary else Color.Red)
+                            }
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Text("Stok Tujuan ($toStore):", fontSize = 11.sp, color = Color.Gray)
+                                Text("$targetCurrent Pcs", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = Color(0xFF2E7D32))
+                            }
+                            if (qty > 0 && qty <= availableInSource) {
+                                HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
+                                Text(
+                                    text = "Estimasi Baru ➔ $fromStore: ${availableInSource - qty} Pcs | $toStore: ${targetCurrent + qty} Pcs",
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = MaterialTheme.colorScheme.primary
+                                )
+                            }
+                        }
                     }
                 }
 
@@ -777,7 +803,7 @@ fun TransferStokDialog(
                         qtyText = it.filter { char -> char.isDigit() }
                         errorMessage = ""
                     },
-                    label = { Text("Jumlah Transfer (Pcs)") },
+                    label = { Text("Jumlah Transfer (Pcs / Unit)") },
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                     modifier = Modifier.fillMaxWidth(),
                     shape = RoundedCornerShape(8.dp)
@@ -813,8 +839,8 @@ fun TransferStokDialog(
                         errorMessage = "Masukkan jumlah yang valid (> 0)"
                         return@Button
                     }
-                    val isFromGudangOrUtama = fromStore == "Gudang" || fromStore == "Toko Utama" || fromStore.contains("Gudang", ignoreCase = true) || fromStore.contains("Utama", ignoreCase = true)
-                    val available = if (isFromGudangOrUtama) item.actualStokUtama else item.actualStokCabang
+                    val isFromGudang = fromStore == "Gudang" || fromStore == "Toko Utama"
+                    val available = if (isFromGudang) item.actualStokUtama else item.actualStokCabang
                     if (qty > available) {
                         errorMessage = "Jumlah transfer melebihi stok $fromStore ($available pcs)"
                         return@Button
@@ -990,19 +1016,74 @@ fun RiwayatStokItemDialog(
     )
 }
 
-// --- Dialog Riwayat Transfer Stok Gudang -> Toko ---
+// --- Dialog Riwayat Transfer Stok Gudang <-> Toko ---
 @Composable
 fun RiwayatTransferStokDialog(
     viewModel: MainViewModel,
     onDismiss: () -> Unit
 ) {
     val allHistory by viewModel.allStockHistory.collectAsState(initial = emptyList())
-    val transferHistories = remember(allHistory) {
+    var selectedDirectionFilter by remember { mutableStateOf("SEMUA") } // "SEMUA", "GUDANG_TO_TOKO", "TOKO_TO_GUDANG"
+    var searchQuery by remember { mutableStateOf("") }
+
+    // Helper functions to identify transfer direction
+    fun isGudangToTokoTransfer(h: StockHistoryEntity): Boolean {
+        val jenis = h.jenis
+        val namaToko = h.namaToko
+        val ket = h.keterangan
+        return (jenis.contains("Gudang ➔ Toko", ignoreCase = true) ||
+                jenis.contains("Gudang -> Toko", ignoreCase = true) ||
+                namaToko.contains("Gudang -> Toko", ignoreCase = true) ||
+                namaToko.contains("Gudang ➔", ignoreCase = true) ||
+                (ket.contains("dari Gudang", ignoreCase = true) && ket.contains("ke Toko", ignoreCase = true)) ||
+                (ket.contains("Gudang ke Toko", ignoreCase = true)))
+    }
+
+    fun isTokoToGudangTransfer(h: StockHistoryEntity): Boolean {
+        val jenis = h.jenis
+        val namaToko = h.namaToko
+        val ket = h.keterangan
+        return (jenis.contains("Toko ➔ Gudang", ignoreCase = true) ||
+                jenis.contains("Toko -> Gudang", ignoreCase = true) ||
+                namaToko.contains("Toko -> Gudang", ignoreCase = true) ||
+                namaToko.contains("Toko ➔ Gudang", ignoreCase = true) ||
+                namaToko.contains("Stok Toko -> Gudang", ignoreCase = true) ||
+                (ket.contains("dari Stok Toko", ignoreCase = true) && ket.contains("ke Gudang", ignoreCase = true)) ||
+                (ket.contains("dari Toko", ignoreCase = true) && ket.contains("ke Gudang", ignoreCase = true)) ||
+                (ket.contains("Toko ke Gudang", ignoreCase = true)))
+    }
+
+    val allTransferHistories = remember(allHistory) {
         allHistory.filter { h ->
             h.jenis.contains("Transfer", ignoreCase = true) ||
                     h.keterangan.contains("Transfer", ignoreCase = true) ||
-                    h.keterangan.contains("Gudang", ignoreCase = true) ||
-                    h.keterangan.contains("Toko", ignoreCase = true)
+                    h.namaToko.contains("->", ignoreCase = true) ||
+                    h.namaToko.contains("➔", ignoreCase = true)
+        }
+    }
+
+    val totalTransferCount = allTransferHistories.size
+    val totalQtyToToko = remember(allTransferHistories) {
+        allTransferHistories.filter { isGudangToTokoTransfer(it) }.sumOf { kotlin.math.abs(it.jumlahPerubahan) }
+    }
+    val totalQtyToGudang = remember(allTransferHistories) {
+        allTransferHistories.filter { isTokoToGudangTransfer(it) }.sumOf { kotlin.math.abs(it.jumlahPerubahan) }
+    }
+
+    val filteredHistories = remember(allTransferHistories, selectedDirectionFilter, searchQuery) {
+        allTransferHistories.filter { h ->
+            val matchesDirection = when (selectedDirectionFilter) {
+                "GUDANG_TO_TOKO" -> isGudangToTokoTransfer(h)
+                "TOKO_TO_GUDANG" -> isTokoToGudangTransfer(h)
+                else -> true
+            }
+            val matchesQuery = searchQuery.isBlank() ||
+                    h.namaBarang.contains(searchQuery, ignoreCase = true) ||
+                    h.kodeBarang.contains(searchQuery, ignoreCase = true) ||
+                    h.keterangan.contains(searchQuery, ignoreCase = true) ||
+                    h.namaToko.contains(searchQuery, ignoreCase = true)
+
+            matchesDirection && matchesQuery
         }
     }
 
@@ -1012,45 +1093,242 @@ fun RiwayatTransferStokDialog(
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Icon(Icons.Default.CompareArrows, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
                 Spacer(modifier = Modifier.width(8.dp))
-                Text("Riwayat Transfer Gudang ➔ Toko", fontWeight = FontWeight.Bold, fontSize = 16.sp)
+                Column {
+                    Text("Riwayat Transfer Barang", fontWeight = FontWeight.Bold, fontSize = 16.sp)
+                    Text("Gudang ⇄ Stok Toko", fontSize = 11.sp, color = Color.Gray)
+                }
             }
         },
         text = {
-            if (transferHistories.isEmpty()) {
-                Text("Belum ada riwayat perpindahan / transfer barang antara Gudang dan Toko.", color = Color.Gray, fontSize = 12.sp)
-            } else {
-                LazyColumn(
-                    modifier = Modifier.height(280.dp),
-                    verticalArrangement = Arrangement.spacedBy(6.dp)
+            Column(modifier = Modifier.fillMaxWidth()) {
+                // Summary Metrics Banner
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
-                    items(transferHistories) { h ->
-                        Card(
-                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)),
-                            shape = RoundedCornerShape(8.dp)
+                    Card(
+                        modifier = Modifier.weight(1f),
+                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f)),
+                        shape = RoundedCornerShape(8.dp)
+                    ) {
+                        Column(
+                            modifier = Modifier.padding(6.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally
                         ) {
-                            Column(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(10.dp)
+                            Text("Total Transfer", fontSize = 10.sp, color = Color.Gray)
+                            Text("$totalTransferCount", fontSize = 13.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+                        }
+                    }
+
+                    Card(
+                        modifier = Modifier.weight(1f),
+                        colors = CardDefaults.cardColors(containerColor = Color(0xFFE3F2FD)),
+                        shape = RoundedCornerShape(8.dp)
+                    ) {
+                        Column(
+                            modifier = Modifier.padding(6.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally
+                        ) {
+                            Text("🏬 ➔ 🏪 Toko", fontSize = 10.sp, color = Color(0xFF1565C0), fontWeight = FontWeight.SemiBold)
+                            Text("$totalQtyToToko Unit", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Color(0xFF1565C0))
+                        }
+                    }
+
+                    Card(
+                        modifier = Modifier.weight(1f),
+                        colors = CardDefaults.cardColors(containerColor = Color(0xFFE8F5E9)),
+                        shape = RoundedCornerShape(8.dp)
+                    ) {
+                        Column(
+                            modifier = Modifier.padding(6.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally
+                        ) {
+                            Text("🏪 ➔ 🏬 Gudang", fontSize = 10.sp, color = Color(0xFF2E7D32), fontWeight = FontWeight.SemiBold)
+                            Text("$totalQtyToGudang Unit", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Color(0xFF2E7D32))
+                        }
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(8.dp))
+
+                // Direction Filter Chips
+                LazyRow(
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    item {
+                        FilterChip(
+                            selected = selectedDirectionFilter == "SEMUA",
+                            onClick = { selectedDirectionFilter = "SEMUA" },
+                            label = { Text("Semua Arah", fontSize = 11.sp) }
+                        )
+                    }
+                    item {
+                        FilterChip(
+                            selected = selectedDirectionFilter == "GUDANG_TO_TOKO",
+                            onClick = { selectedDirectionFilter = "GUDANG_TO_TOKO" },
+                            label = { Text("🏬 Gudang ➔ Toko", fontSize = 11.sp) }
+                        )
+                    }
+                    item {
+                        FilterChip(
+                            selected = selectedDirectionFilter == "TOKO_TO_GUDANG",
+                            onClick = { selectedDirectionFilter = "TOKO_TO_GUDANG" },
+                            label = { Text("🏪 Toko ➔ Gudang", fontSize = 11.sp) }
+                        )
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(6.dp))
+
+                // Search field
+                OutlinedTextField(
+                    value = searchQuery,
+                    onValueChange = { searchQuery = it },
+                    placeholder = { Text("Cari barang / catatan...", fontSize = 11.sp) },
+                    leadingIcon = { Icon(Icons.Default.Search, contentDescription = null, modifier = Modifier.size(16.dp)) },
+                    trailingIcon = {
+                        if (searchQuery.isNotEmpty()) {
+                            IconButton(onClick = { searchQuery = "" }, modifier = Modifier.size(18.dp)) {
+                                Icon(Icons.Default.Clear, contentDescription = null)
+                            }
+                        }
+                    },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(8.dp)
+                )
+
+                Spacer(modifier = Modifier.height(8.dp))
+
+                // History List
+                if (filteredHistories.isEmpty()) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(180.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            Icon(imageVector = Icons.Default.CompareArrows, contentDescription = null, tint = Color.Gray, modifier = Modifier.size(36.dp))
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Text("Tidak ada riwayat transfer ditemukan", color = Color.Gray, fontSize = 12.sp)
+                        }
+                    }
+                } else {
+                    LazyColumn(
+                        modifier = Modifier.height(280.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        items(filteredHistories) { h ->
+                            val isGudangToToko = isGudangToTokoTransfer(h)
+                            Card(
+                                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f)),
+                                shape = RoundedCornerShape(10.dp),
+                                modifier = Modifier.fillMaxWidth()
                             ) {
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.SpaceBetween,
-                                    verticalAlignment = Alignment.CenterVertically
+                                Column(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(10.dp)
                                 ) {
-                                    Text(h.namaBarang, fontWeight = FontWeight.Bold, fontSize = 13.sp)
-                                    Text(
-                                        text = "${if (h.jumlahPerubahan >= 0) "+" else ""}${h.jumlahPerubahan} Pcs",
-                                        fontWeight = FontWeight.Bold,
-                                        fontSize = 13.sp,
-                                        color = if (h.jumlahPerubahan >= 0) Color(0xFF2E7D32) else Color(0xFFC62828)
-                                    )
+                                    // Row 1: Item Name and Transferred Qty
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Text(
+                                            text = h.namaBarang,
+                                            fontWeight = FontWeight.Bold,
+                                            fontSize = 13.sp,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis,
+                                            modifier = Modifier.weight(1f)
+                                        )
+                                        Spacer(modifier = Modifier.width(6.dp))
+                                        Surface(
+                                            color = if (isGudangToToko) Color(0xFF1565C0) else Color(0xFF2E7D32),
+                                            shape = RoundedCornerShape(6.dp)
+                                        ) {
+                                            Text(
+                                                text = "${kotlin.math.abs(h.jumlahPerubahan)} Unit",
+                                                fontWeight = FontWeight.Bold,
+                                                fontSize = 12.sp,
+                                                color = Color.White,
+                                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                            )
+                                        }
+                                    }
+
+                                    Spacer(modifier = Modifier.height(4.dp))
+
+                                    // Row 2: Direction Badge
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                    ) {
+                                        Surface(
+                                            color = if (isGudangToToko) Color(0xFFE3F2FD) else Color(0xFFE8F5E9),
+                                            shape = RoundedCornerShape(4.dp)
+                                        ) {
+                                            Row(
+                                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                                                verticalAlignment = Alignment.CenterVertically
+                                            ) {
+                                                Icon(
+                                                    imageVector = if (isGudangToToko) Icons.Default.ArrowForward else Icons.Default.ArrowBack,
+                                                    contentDescription = null,
+                                                    tint = if (isGudangToToko) Color(0xFF1565C0) else Color(0xFF2E7D32),
+                                                    modifier = Modifier.size(12.dp)
+                                                )
+                                                Spacer(modifier = Modifier.width(4.dp))
+                                                Text(
+                                                    text = if (isGudangToToko) "Gudang ➔ Stok Toko" else "Stok Toko ➔ Gudang",
+                                                    fontSize = 10.sp,
+                                                    fontWeight = FontWeight.Bold,
+                                                    color = if (isGudangToToko) Color(0xFF1565C0) else Color(0xFF2E7D32)
+                                                )
+                                            }
+                                        }
+
+                                        if (h.kodeBarang.isNotBlank()) {
+                                            Text("SKU: ${h.kodeBarang}", fontSize = 10.sp, color = Color.Gray)
+                                        }
+                                    }
+
+                                    // Row 3: Description / Note
+                                    if (h.keterangan.isNotBlank()) {
+                                        Spacer(modifier = Modifier.height(4.dp))
+                                        Text(
+                                            text = h.keterangan,
+                                            fontSize = 11.sp,
+                                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.8f)
+                                        )
+                                    }
+
+                                    Spacer(modifier = Modifier.height(4.dp))
+
+                                    // Row 4: Timestamp & Initial/Final Stock
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Text(
+                                            text = Formatters.formatTimestamp(h.timestamp),
+                                            fontSize = 10.sp,
+                                            color = Color.Gray
+                                        )
+                                        if (h.stokAwal > 0 || h.stokAkhir > 0) {
+                                            Text(
+                                                text = "Stok: ${h.stokAwal} ➔ ${h.stokAkhir}",
+                                                fontSize = 10.sp,
+                                                color = Color.Gray
+                                            )
+                                        }
+                                    }
                                 }
-                                Text("SKU: ${h.kodeBarang.ifBlank { "-" }} • Outlet: ${h.namaToko}", fontSize = 11.sp, color = MaterialTheme.colorScheme.primary)
-                                if (h.keterangan.isNotBlank()) {
-                                    Text(h.keterangan, fontSize = 11.sp, color = Color.Gray)
-                                }
-                                Text(Formatters.formatTimestamp(h.timestamp), fontSize = 10.sp, color = Color.Gray)
                             }
                         }
                     }

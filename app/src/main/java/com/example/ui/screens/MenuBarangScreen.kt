@@ -277,15 +277,16 @@ fun MenuBarangScreen(
                             Row(
                                 modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
                                 horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically
+                                verticalAlignment = Alignment.Bottom
                             ) {
-                                Column {
+                                Column(modifier = Modifier.weight(1f, fill = false)) {
                                     Text(
                                         text = "Total Nilai Modal Produk (Aset Toko):",
                                         fontSize = 11.sp,
                                         fontWeight = FontWeight.SemiBold,
                                         color = Color(0xFF37474F)
                                     )
+                                    Spacer(modifier = Modifier.height(2.dp))
                                     Text(
                                         text = "Total Aset Seluruh Stok Barang",
                                         fontSize = 10.sp,
@@ -296,7 +297,8 @@ fun MenuBarangScreen(
                                     text = Formatters.formatRupiah(totalNilaiModal),
                                     fontSize = 17.sp,
                                     fontWeight = FontWeight.Bold,
-                                    color = MaterialTheme.colorScheme.primary
+                                    color = MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier.padding(bottom = 1.dp)
                                 )
                             }
                         }
@@ -311,26 +313,27 @@ fun MenuBarangScreen(
                             Card(
                                 modifier = Modifier.weight(1f),
                                 shape = RoundedCornerShape(10.dp),
-                                colors = CardDefaults.cardColors(containerColor = Color.White.copy(alpha = 0.9f))
+                                colors = CardDefaults.cardColors(containerColor = Color(0xFFFFEBEE).copy(alpha = 0.85f))
                             ) {
                                 Column(modifier = Modifier.padding(10.dp)) {
                                     Text(
                                         text = "Nilai Stok Gudang",
                                         fontSize = 10.sp,
-                                        fontWeight = FontWeight.Medium,
-                                        color = MaterialTheme.colorScheme.primary
+                                        fontWeight = FontWeight.Bold,
+                                        color = Color(0xFFD32F2F)
                                     )
                                     Spacer(modifier = Modifier.height(2.dp))
                                     Text(
                                         text = Formatters.formatRupiah(totalNilaiGudang),
                                         fontSize = 13.sp,
                                         fontWeight = FontWeight.Bold,
-                                        color = MaterialTheme.colorScheme.onSurface
+                                        color = Color(0xFFE53935)
                                     )
                                     Text(
                                         text = "$totalUnitGudang Unit",
                                         fontSize = 10.sp,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        fontWeight = FontWeight.Medium,
+                                        color = Color(0xFFE53935)
                                     )
                                 }
                             }
@@ -338,26 +341,27 @@ fun MenuBarangScreen(
                             Card(
                                 modifier = Modifier.weight(1f),
                                 shape = RoundedCornerShape(10.dp),
-                                colors = CardDefaults.cardColors(containerColor = Color.White.copy(alpha = 0.9f))
+                                colors = CardDefaults.cardColors(containerColor = Color(0xFFFFEBEE).copy(alpha = 0.85f))
                             ) {
                                 Column(modifier = Modifier.padding(10.dp)) {
                                     Text(
                                         text = "Nilai Stok Toko",
                                         fontSize = 10.sp,
-                                        fontWeight = FontWeight.Medium,
-                                        color = Color(0xFF1B5E20)
+                                        fontWeight = FontWeight.Bold,
+                                        color = Color(0xFFD32F2F)
                                     )
                                     Spacer(modifier = Modifier.height(2.dp))
                                     Text(
                                         text = Formatters.formatRupiah(totalNilaiToko),
                                         fontSize = 13.sp,
                                         fontWeight = FontWeight.Bold,
-                                        color = MaterialTheme.colorScheme.onSurface
+                                        color = Color(0xFFE53935)
                                     )
                                     Text(
                                         text = "$totalUnitToko Unit",
                                         fontSize = 10.sp,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        fontWeight = FontWeight.Medium,
+                                        color = Color(0xFFE53935)
                                     )
                                 }
                             }
@@ -845,26 +849,26 @@ fun ItemCard(
                     ) {
                         Surface(
                             shape = RoundedCornerShape(4.dp),
-                            color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f)
+                            color = Color(0xFFFFEBEE)
                         ) {
                             Text(
                                 text = "Nilai Gudang: ${Formatters.formatRupiah(nilaiStokGudang)} (${item.actualStokUtama} unit)",
                                 fontSize = 10.sp,
-                                fontWeight = FontWeight.SemiBold,
-                                color = MaterialTheme.colorScheme.onPrimaryContainer,
+                                fontWeight = FontWeight.Bold,
+                                color = Color(0xFFE53935),
                                 modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
                             )
                         }
 
                         Surface(
                             shape = RoundedCornerShape(4.dp),
-                            color = Color(0xFFE8F5E9)
+                            color = Color(0xFFFFEBEE)
                         ) {
                             Text(
                                 text = "Nilai Toko: ${Formatters.formatRupiah(nilaiStokToko)} (${item.actualStokCabang} unit)",
                                 fontSize = 10.sp,
-                                fontWeight = FontWeight.SemiBold,
-                                color = Color(0xFF1B5E20),
+                                fontWeight = FontWeight.Bold,
+                                color = Color(0xFFE53935),
                                 modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
                             )
                         }

@@ -17,6 +17,8 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
@@ -85,6 +87,7 @@ import com.example.util.Formatters
 fun MenuKasScreen(
     viewModel: MainViewModel
 ) {
+    val context = androidx.compose.ui.platform.LocalContext.current
     val totalCash by viewModel.totalCashBalance.collectAsStateWithLifecycle()
     val kasTunai by viewModel.kasTunaiBalance.collectAsStateWithLifecycle()
     val kasBank by viewModel.kasBankBalance.collectAsStateWithLifecycle()
@@ -448,6 +451,21 @@ fun MenuKasScreen(
                                 }
                                 Row(verticalAlignment = Alignment.CenterVertically) {
                                     IconButton(
+                                        onClick = {
+                                            val firstBank = availableAccounts.find { it.type != "TUNAI" }?.type ?: "BANK_BCA"
+                                            targetAccountForEdit = firstBank
+                                            showEditSaldoDialog = true
+                                        },
+                                        modifier = Modifier.size(28.dp)
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.Edit,
+                                            contentDescription = "Edit Saldo Bank",
+                                            tint = Color(0xFF1565C0),
+                                            modifier = Modifier.size(16.dp)
+                                        )
+                                    }
+                                    IconButton(
                                         onClick = { showClearTransferHistoryDialog = true },
                                         modifier = Modifier.size(28.dp)
                                     ) {
@@ -465,7 +483,12 @@ fun MenuKasScreen(
                                 text = Formatters.formatRupiah(kasBank),
                                 fontSize = 18.sp,
                                 fontWeight = FontWeight.Bold,
-                                color = Color(0xFF0D47A1)
+                                color = Color(0xFF0D47A1),
+                                modifier = Modifier.clickable {
+                                    val firstBank = availableAccounts.find { it.type != "TUNAI" }?.type ?: "BANK_BCA"
+                                    targetAccountForEdit = firstBank
+                                    showEditSaldoDialog = true
+                                }
                             )
                             Spacer(modifier = Modifier.height(2.dp))
                             Text(
@@ -486,10 +509,10 @@ fun MenuKasScreen(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Text(
-                        text = "Daftar Bank & E-Wallet:",
+                        text = "Bank yang Terdaftar:",
                         fontSize = 13.sp,
                         fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.onSurface
+                        color = Color(0xFFE53935) // Merah Cerah
                     )
 
                     Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
@@ -644,11 +667,12 @@ fun MenuKasScreen(
                         items(nonTunaiAccounts, key = { it.accountType }) { acc ->
                             val currentSaldo = acc.saldo
 
-                            Card(
+                                Card(
                                 shape = RoundedCornerShape(10.dp),
                                 colors = CardDefaults.cardColors(
                                     containerColor = if (currentSaldo > 0) Color(0xFFE3F2FD) else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
-                                )
+                                ),
+                                modifier = Modifier.widthIn(min = 185.dp)
                             ) {
                                 Column(modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp)) {
                                     Row(
@@ -658,22 +682,33 @@ fun MenuKasScreen(
                                     ) {
                                         Row(
                                             verticalAlignment = Alignment.CenterVertically,
-                                            modifier = Modifier.clickable {
-                                                targetAccountForEdit = acc.accountType
-                                                showEditSaldoDialog = true
-                                            }
+                                            modifier = Modifier
+                                                .weight(1f, fill = false)
+                                                .clickable {
+                                                    targetAccountForEdit = acc.accountType
+                                                    showEditSaldoDialog = true
+                                                }
                                         ) {
                                             Icon(
                                                 imageVector = if (com.example.data.entity.CashAccountDefaults.getAccountCategory(acc.accountType) == "E-WALLET") Icons.Default.Payments else Icons.Default.AccountBalance,
                                                 contentDescription = null,
-                                                tint = Color(0xFF1565C0),
+                                                tint = Color(0xFFE53935),
                                                 modifier = Modifier.size(16.dp)
                                             )
                                             Spacer(modifier = Modifier.width(4.dp))
-                                            Text(text = acc.accountName, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                                            Text(
+                                                text = acc.accountName,
+                                                fontWeight = FontWeight.Bold,
+                                                fontSize = 12.sp,
+                                                color = Color(0xFFE53935), // Merah cerah
+                                                maxLines = 1,
+                                                overflow = TextOverflow.Ellipsis
+                                            )
                                             Spacer(modifier = Modifier.width(4.dp))
-                                            Icon(imageVector = Icons.Default.Edit, contentDescription = "Edit", tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(12.dp))
+                                            Icon(imageVector = Icons.Default.Edit, contentDescription = "Edit", tint = Color(0xFFE53935), modifier = Modifier.size(12.dp))
                                         }
+
+                                        Spacer(modifier = Modifier.width(6.dp))
 
                                         Row(verticalAlignment = Alignment.CenterVertically) {
                                             IconButton(
@@ -713,17 +748,47 @@ fun MenuKasScreen(
                                             }
                                         }
                                     }
-                                    Spacer(modifier = Modifier.height(4.dp))
-                                    Text(
-                                        text = Formatters.formatRupiah(currentSaldo),
-                                        fontSize = 13.sp,
-                                        fontWeight = FontWeight.Bold,
-                                        color = if (currentSaldo > 0) Color(0xFF0D47A1) else MaterialTheme.colorScheme.onSurfaceVariant,
-                                        modifier = Modifier.clickable {
-                                            targetAccountForEdit = acc.accountType
-                                            showEditSaldoDialog = true
+                                    Spacer(modifier = Modifier.height(6.dp))
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .clickable {
+                                                targetAccountForEdit = acc.accountType
+                                                showEditSaldoDialog = true
+                                            }
+                                    ) {
+                                        Text(
+                                            text = Formatters.formatRupiah(currentSaldo),
+                                            fontSize = 14.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            color = if (currentSaldo > 0) Color(0xFF0D47A1) else MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                        Spacer(modifier = Modifier.width(6.dp))
+                                        Surface(
+                                            color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.6f),
+                                            shape = RoundedCornerShape(4.dp)
+                                        ) {
+                                            Row(
+                                                modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp),
+                                                verticalAlignment = Alignment.CenterVertically
+                                            ) {
+                                                Icon(
+                                                    imageVector = Icons.Default.Edit,
+                                                    contentDescription = "Ubah Saldo",
+                                                    tint = MaterialTheme.colorScheme.primary,
+                                                    modifier = Modifier.size(11.dp)
+                                                )
+                                                Spacer(modifier = Modifier.width(2.dp))
+                                                Text(
+                                                    text = "Ubah",
+                                                    fontSize = 9.sp,
+                                                    fontWeight = FontWeight.Bold,
+                                                    color = MaterialTheme.colorScheme.primary
+                                                )
+                                            }
                                         }
-                                    )
+                                    }
                                 }
                             }
                         }
@@ -823,40 +888,31 @@ fun MenuKasScreen(
                     Card(
                         modifier = Modifier.fillMaxWidth(),
                         shape = RoundedCornerShape(12.dp),
-                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.35f)),
+                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.25f)),
                         elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
                     ) {
-                        Row(
+                        Column(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .padding(12.dp),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
+                                .padding(12.dp)
                         ) {
-                            Column(modifier = Modifier.weight(1f)) {
-                                Text(
-                                    text = "Riwayat Akun: $selectedAccountLabel",
-                                    fontWeight = FontWeight.Bold,
-                                    fontSize = 13.sp,
-                                    color = MaterialTheme.colorScheme.onPrimaryContainer
-                                )
-                                Text(
-                                    text = "${filteredMutations.size} transaksi mutasi",
-                                    fontSize = 11.sp,
-                                    color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.8f)
-                                )
-                            }
                             Row(
-                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
-                                Column(horizontalAlignment = Alignment.End) {
-                                    Text("Total Masuk", fontSize = 10.sp, color = Color(0xFF2E7D32), fontWeight = FontWeight.Medium)
-                                    Text(Formatters.formatRupiah(totalMasukFiltered), fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Color(0xFF2E7D32))
-                                }
-                                Column(horizontalAlignment = Alignment.End) {
-                                    Text("Total Keluar", fontSize = 10.sp, color = Color(0xFFC62828), fontWeight = FontWeight.Medium)
-                                    Text(Formatters.formatRupiah(totalKeluarFiltered), fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Color(0xFFC62828))
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(
+                                        text = "Riwayat Akun: $selectedAccountLabel",
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = 13.sp,
+                                        color = MaterialTheme.colorScheme.onPrimaryContainer
+                                    )
+                                    Text(
+                                        text = "${filteredMutations.size} transaksi mutasi tercatat",
+                                        fontSize = 11.sp,
+                                        color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.8f)
+                                    )
                                 }
                                 IconButton(
                                     onClick = { showClearFilterAccountHistoryDialog = true },
@@ -870,6 +926,36 @@ fun MenuKasScreen(
                                         tint = Color(0xFFC62828),
                                         modifier = Modifier.size(16.dp)
                                     )
+                                }
+                            }
+
+                            Spacer(modifier = Modifier.height(8.dp))
+
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                Surface(
+                                    modifier = Modifier.weight(1f),
+                                    shape = RoundedCornerShape(8.dp),
+                                    color = Color(0xFFE8F5E9)
+                                ) {
+                                    Column(modifier = Modifier.padding(8.dp)) {
+                                        Text("Total Masuk", fontSize = 10.sp, color = Color(0xFF2E7D32), fontWeight = FontWeight.Medium)
+                                        Spacer(modifier = Modifier.height(2.dp))
+                                        Text(Formatters.formatRupiah(totalMasukFiltered), fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Color(0xFF2E7D32))
+                                    }
+                                }
+                                Surface(
+                                    modifier = Modifier.weight(1f),
+                                    shape = RoundedCornerShape(8.dp),
+                                    color = Color(0xFFFFEBEE)
+                                ) {
+                                    Column(modifier = Modifier.padding(8.dp)) {
+                                        Text("Total Keluar", fontSize = 10.sp, color = Color(0xFFC62828), fontWeight = FontWeight.Medium)
+                                        Spacer(modifier = Modifier.height(2.dp))
+                                        Text(Formatters.formatRupiah(totalKeluarFiltered), fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Color(0xFFC62828))
+                                    }
                                 }
                             }
                         }
@@ -903,85 +989,72 @@ fun MenuKasScreen(
                         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
                         elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
                     ) {
-                        Row(
+                        Column(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .padding(14.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.SpaceBetween
+                                .padding(12.dp)
                         ) {
+                            // Top Row: Icon + Badge + Kategori + Spacer + Nominal
                             Row(
-                                modifier = Modifier.weight(1f),
-                                verticalAlignment = Alignment.CenterVertically
+                                modifier = Modifier.fillMaxWidth(),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.SpaceBetween
                             ) {
-                                Box(
-                                    modifier = Modifier
-                                        .size(40.dp)
-                                        .clip(CircleShape)
-                                        .background(
-                                            if (isPenyesuaian) Color(0xFFFFF3E0)
-                                            else if (isMasuk) Color(0xFFE8F5E9)
-                                            else Color(0xFFFFEBEE)
-                                        ),
-                                    contentAlignment = Alignment.Center
+                                Row(
+                                    modifier = Modifier.weight(1f),
+                                    verticalAlignment = Alignment.CenterVertically
                                 ) {
-                                    Icon(
-                                        imageVector = if (isPenyesuaian) Icons.Default.Edit
-                                        else if (isMasuk) Icons.Default.ArrowDownward
-                                        else Icons.Default.ArrowUpward,
-                                        contentDescription = null,
-                                        tint = if (isPenyesuaian) Color(0xFFE65100)
-                                        else if (isMasuk) Color(0xFF2E7D32)
-                                        else Color(0xFFC62828),
-                                        modifier = Modifier.size(20.dp)
-                                    )
-                                }
+                                    Box(
+                                        modifier = Modifier
+                                            .size(34.dp)
+                                            .clip(CircleShape)
+                                            .background(
+                                                if (isPenyesuaian) Color(0xFFFFF3E0)
+                                                else if (isMasuk) Color(0xFFE8F5E9)
+                                                else Color(0xFFFFEBEE)
+                                            ),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Icon(
+                                            imageVector = if (isPenyesuaian) Icons.Default.Edit
+                                            else if (isMasuk) Icons.Default.ArrowDownward
+                                            else Icons.Default.ArrowUpward,
+                                            contentDescription = null,
+                                            tint = if (isPenyesuaian) Color(0xFFE65100)
+                                            else if (isMasuk) Color(0xFF2E7D32)
+                                            else Color(0xFFC62828),
+                                            modifier = Modifier.size(18.dp)
+                                        )
+                                    }
 
-                                Spacer(modifier = Modifier.width(12.dp))
+                                    Spacer(modifier = Modifier.width(8.dp))
 
-                                Column {
-                                    Row(verticalAlignment = Alignment.CenterVertically) {
-                                        val accountName = com.example.data.entity.CashAccountDefaults.getAccountName(mutation.accountType)
-                                        Surface(
-                                            shape = RoundedCornerShape(4.dp),
-                                            color = if (mutation.accountType == "TUNAI") Color(0xFFE8F5E9) else Color(0xFFE3F2FD),
-                                            modifier = Modifier.padding(end = 6.dp)
-                                        ) {
-                                            Text(
-                                                text = accountName,
-                                                style = MaterialTheme.typography.labelSmall,
-                                                fontWeight = FontWeight.Bold,
-                                                color = if (mutation.accountType == "TUNAI") Color(0xFF2E7D32) else Color(0xFF1565C0),
-                                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
-                                            )
-                                        }
-
+                                    val accountName = com.example.data.entity.CashAccountDefaults.getAccountName(mutation.accountType)
+                                    Surface(
+                                        shape = RoundedCornerShape(4.dp),
+                                        color = if (mutation.accountType == "TUNAI") Color(0xFFE8F5E9) else Color(0xFFE3F2FD),
+                                        modifier = Modifier.padding(end = 6.dp)
+                                    ) {
                                         Text(
-                                            text = mutation.kategori,
+                                            text = accountName,
+                                            style = MaterialTheme.typography.labelSmall,
                                             fontWeight = FontWeight.Bold,
-                                            fontSize = 14.sp
+                                            color = if (mutation.accountType == "TUNAI") Color(0xFF2E7D32) else Color(0xFF1565C0),
+                                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
                                         )
                                     }
 
-                                    if (mutation.keterangan.isNotBlank()) {
-                                        Spacer(modifier = Modifier.height(2.dp))
-                                        Text(
-                                            text = mutation.keterangan,
-                                            fontSize = 12.sp,
-                                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                                        )
-                                    }
-
-                                    Spacer(modifier = Modifier.height(2.dp))
                                     Text(
-                                        text = "${mutation.tanggal} • Saldo: ${Formatters.formatRupiah(mutation.saldoSesudah)}",
-                                        fontSize = 11.sp,
-                                        color = MaterialTheme.colorScheme.outline
+                                        text = mutation.kategori,
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = 13.sp,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
                                     )
                                 }
-                            }
 
-                            Column(horizontalAlignment = Alignment.End) {
+                                Spacer(modifier = Modifier.width(8.dp))
+
                                 Text(
                                     text = "${if (isMasuk) "+" else "-"}${Formatters.formatRupiah(kotlin.math.abs(mutation.nominal))}",
                                     fontWeight = FontWeight.Bold,
@@ -990,37 +1063,106 @@ fun MenuKasScreen(
                                     else if (isMasuk) Color(0xFF2E7D32)
                                     else Color(0xFFC62828)
                                 )
-                                Row(verticalAlignment = Alignment.CenterVertically) {
-                                    IconButton(
+                            }
+
+                            // Middle Description (if not empty)
+                            if (mutation.keterangan.isNotBlank()) {
+                                Spacer(modifier = Modifier.height(6.dp))
+                                Surface(
+                                    shape = RoundedCornerShape(6.dp),
+                                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f),
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    Text(
+                                        text = mutation.keterangan,
+                                        fontSize = 11.sp,
+                                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 5.dp),
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                            }
+
+                            Spacer(modifier = Modifier.height(6.dp))
+
+                            // Bottom Row: Date & Balance info on Left, Action Buttons on Right
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(
+                                        text = mutation.tanggal,
+                                        fontSize = 11.sp,
+                                        color = MaterialTheme.colorScheme.outline
+                                    )
+                                    Text(
+                                        text = "Saldo: ${Formatters.formatRupiah(mutation.saldoSesudah)}",
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.SemiBold,
+                                        color = Color(0xFF1565C0)
+                                    )
+                                }
+
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                ) {
+                                    Surface(
                                         onClick = { mutationToEdit = mutation },
-                                        modifier = Modifier.size(24.dp)
+                                        shape = RoundedCornerShape(6.dp),
+                                        color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.6f),
+                                        modifier = Modifier.height(26.dp)
                                     ) {
-                                        Icon(
-                                            imageVector = Icons.Default.Edit,
-                                            contentDescription = "Edit Mutasi",
-                                            tint = MaterialTheme.colorScheme.primary,
-                                            modifier = Modifier.size(14.dp)
-                                        )
+                                        Row(
+                                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Default.Edit,
+                                                contentDescription = "Edit Mutasi",
+                                                tint = MaterialTheme.colorScheme.primary,
+                                                modifier = Modifier.size(12.dp)
+                                            )
+                                            Spacer(modifier = Modifier.width(3.dp))
+                                            Text("Edit", fontSize = 10.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+                                        }
                                     }
-                                    Spacer(modifier = Modifier.width(2.dp))
-                                    IconButton(
+
+                                    Surface(
                                         onClick = { mutationToDelete = mutation },
-                                        modifier = Modifier.size(24.dp)
+                                        shape = RoundedCornerShape(6.dp),
+                                        color = Color(0xFFFFEBEE),
+                                        modifier = Modifier.height(26.dp)
                                     ) {
-                                        Icon(
-                                            imageVector = Icons.Default.DeleteOutline,
-                                            contentDescription = "Hapus Riwayat",
-                                            tint = Color(0xFFC62828),
-                                            modifier = Modifier.size(14.dp)
-                                        )
+                                        Row(
+                                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Default.DeleteOutline,
+                                                contentDescription = "Hapus Riwayat",
+                                                tint = Color(0xFFC62828),
+                                                modifier = Modifier.size(12.dp)
+                                            )
+                                            Spacer(modifier = Modifier.width(3.dp))
+                                            Text("Hapus", fontSize = 10.sp, fontWeight = FontWeight.Bold, color = Color(0xFFC62828))
+                                        }
                                     }
-                                    Spacer(modifier = Modifier.width(2.dp))
-                                    TextButton(
+
+                                    Surface(
                                         onClick = { mutationToCancel = mutation },
-                                        contentPadding = PaddingValues(0.dp),
-                                        modifier = Modifier.height(24.dp)
+                                        shape = RoundedCornerShape(6.dp),
+                                        color = Color(0xFFFFF3E0),
+                                        modifier = Modifier.height(26.dp)
                                     ) {
-                                        Text("Batalkan", fontSize = 10.sp, color = Color(0xFFD32F2F), fontWeight = FontWeight.SemiBold)
+                                        Text(
+                                            text = "Batal",
+                                            fontSize = 10.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            color = Color(0xFFE65100),
+                                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 5.dp)
+                                        )
                                     }
                                 }
                             }
@@ -1629,80 +1771,177 @@ fun MenuKasScreen(
         val currentSaldo = currentEntity?.saldo ?: 0.0
         var newSaldoStr by remember(targetAccountForEdit, currentSaldo) { mutableStateOf(currentSaldo.toLong().toString()) }
         var noteStr by remember { mutableStateOf("") }
+        val newAmount = newSaldoStr.toDoubleOrNull() ?: 0.0
+        val diff = newAmount - currentSaldo
 
         AlertDialog(
             onDismissRequest = { showEditSaldoDialog = false },
             title = {
-                Text(
-                    text = "Perbarui Saldo $accountName",
-                    fontWeight = FontWeight.Bold,
-                    fontSize = 18.sp
-                )
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(
+                        imageVector = if (targetAccountForEdit == "TUNAI") Icons.Default.Payments else Icons.Default.AccountBalance,
+                        contentDescription = null,
+                        tint = if (targetAccountForEdit == "TUNAI") Color(0xFF2E7D32) else Color(0xFF1565C0)
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(
+                        text = "Perbarui Saldo $accountName",
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 17.sp
+                    )
+                }
             },
             text = {
-                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     Text(
-                        text = "Ganti target akun:",
-                        fontSize = 12.sp,
-                        fontWeight = FontWeight.SemiBold
+                        text = "Pilih akun kas/bank yang ingin disesuaikan:",
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        color = Color.Gray
                     )
 
                     androidx.compose.foundation.lazy.LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                         items(availableAccounts, key = { it.type }) { acc ->
                             val accSaldo = allAccounts.find { it.accountType == acc.type }?.saldo ?: 0.0
+                            val isSelected = targetAccountForEdit == acc.type
                             FilterChip(
-                                selected = targetAccountForEdit == acc.type,
+                                selected = isSelected,
                                 onClick = {
                                     targetAccountForEdit = acc.type
                                     val selSaldo = allAccounts.find { it.accountType == acc.type }?.saldo ?: 0.0
                                     newSaldoStr = selSaldo.toLong().toString()
                                 },
-                                label = { Text("${acc.name} (${Formatters.formatRupiah(accSaldo)})", fontSize = 11.sp) }
+                                label = {
+                                    Text(
+                                        text = "${acc.name} (${Formatters.formatRupiah(accSaldo)})",
+                                        fontSize = 11.sp,
+                                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal
+                                    )
+                                }
                             )
                         }
                     }
 
-                    Text(
-                        text = "Saldo saat ini: ${Formatters.formatRupiah(currentSaldo)}",
-                        fontSize = 13.sp,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
+                    // Active Account Info Card
+                    Surface(
+                        shape = RoundedCornerShape(10.dp),
+                        color = if (targetAccountForEdit == "TUNAI") Color(0xFFE8F5E9) else Color(0xFFE3F2FD),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Column(modifier = Modifier.padding(10.dp)) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text("Saldo Saat Ini:", fontSize = 11.sp, color = Color.Gray)
+                                Text(
+                                    text = Formatters.formatRupiah(currentSaldo),
+                                    fontSize = 13.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = if (targetAccountForEdit == "TUNAI") Color(0xFF2E7D32) else Color(0xFF1565C0)
+                                )
+                            }
+                            if (newAmount != currentSaldo && newSaldoStr.isNotBlank()) {
+                                Spacer(modifier = Modifier.height(4.dp))
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Text("Perubahan Saldo:", fontSize = 11.sp, color = Color.Gray)
+                                    Text(
+                                        text = "${if (diff >= 0) "+" else ""}${Formatters.formatRupiah(diff)}",
+                                        fontSize = 12.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = if (diff >= 0) Color(0xFF2E7D32) else Color(0xFFC62828)
+                                    )
+                                }
+                            }
+                        }
+                    }
 
                     OutlinedTextField(
                         value = newSaldoStr,
-                        onValueChange = { newSaldoStr = it },
-                        label = { Text("Saldo Baru (Rp)") },
+                        onValueChange = { input ->
+                            newSaldoStr = input.filter { char -> char.isDigit() }
+                        },
+                        label = { Text("Input Nominal Saldo Baru (Rp)") },
+                        placeholder = { Text("0") },
+                        supportingText = {
+                            if (newSaldoStr.isNotBlank()) {
+                                Text(
+                                    text = "Preview: ${Formatters.formatRupiah(newAmount)}",
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = MaterialTheme.colorScheme.primary
+                                )
+                            }
+                        },
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                         singleLine = true,
-                        modifier = Modifier.fillMaxWidth()
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(8.dp)
                     )
+
+                    // Quick Presets
+                    Text("Preset Cepat:", fontSize = 11.sp, color = Color.Gray)
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        listOf(
+                            "Rp 0" to 0L,
+                            "+100rb" to (currentSaldo.toLong() + 100000L),
+                            "+500rb" to (currentSaldo.toLong() + 500000L),
+                            "+1jt" to (currentSaldo.toLong() + 1000000L)
+                        ).forEach { (label, presetVal) ->
+                            Surface(
+                                shape = RoundedCornerShape(8.dp),
+                                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.7f),
+                                modifier = Modifier.clickable {
+                                    newSaldoStr = presetVal.coerceAtLeast(0L).toString()
+                                }
+                            ) {
+                                Text(
+                                    text = label,
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Medium,
+                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        }
+                    }
 
                     OutlinedTextField(
                         value = noteStr,
                         onValueChange = { noteStr = it },
-                        label = { Text("Alasan / Catatan Penyesuaian") },
-                        placeholder = { Text("Contoh: Opnam kas/saldo fisik") },
+                        label = { Text("Catatan / Alasan Penyesuaian") },
+                        placeholder = { Text("Contoh: Cek mutasi m-Banking / Opnam kas") },
                         singleLine = true,
-                        modifier = Modifier.fillMaxWidth()
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(8.dp)
                     )
                 }
             },
             confirmButton = {
                 Button(
                     onClick = {
-                        val newAmount = newSaldoStr.toDoubleOrNull()
-                        if (newAmount != null) {
+                        val finalAmount = newSaldoStr.toDoubleOrNull()
+                        if (finalAmount != null) {
                             viewModel.updateCashBalanceManual(
                                 accountType = targetAccountForEdit,
-                                newBalance = newAmount,
-                                note = noteStr,
+                                newBalance = finalAmount,
+                                note = noteStr.ifBlank { "Penyesuaian Saldo Manual" },
                                 accountName = accountName
                             )
+                            Toast.makeText(context, "Saldo $accountName berhasil diperbarui!", Toast.LENGTH_SHORT).show()
                             showEditSaldoDialog = false
                         }
                     }
                 ) {
-                    Text("Simpan Saldo Baru")
+                    Text("Simpan Saldo Baru", fontWeight = FontWeight.Bold)
                 }
             },
             dismissButton = {

@@ -12,7 +12,7 @@ interface StockHistoryDao {
     @Query("SELECT * FROM stock_history WHERE itemId = :itemId ORDER BY timestamp DESC")
     fun getHistoryByItem(itemId: Long): Flow<List<StockHistoryEntity>>
 
-    @Query("SELECT * FROM stock_history ORDER BY timestamp DESC LIMIT 100")
+    @Query("SELECT * FROM stock_history ORDER BY timestamp DESC LIMIT 1000")
     fun getAllHistory(): Flow<List<StockHistoryEntity>>
 
     @Query("SELECT * FROM stock_history ORDER BY timestamp DESC")

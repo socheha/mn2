@@ -1019,9 +1019,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     jumlahPerubahan = qty,
                     stokAwal = if (isFromUtama) oldUtama else oldCabang,
                     stokAkhir = if (isToCabang) newCabang else newUtama,
-                    jenis = "Transfer Toko",
-                    keterangan = "Transfer $qty pcs dari $fromStore ke $toStore. ${note.trim()}".trimEnd(),
-                    namaToko = "$fromStore -> $toStore"
+                    jenis = if (isFromUtama) "Transfer: Gudang ➔ Toko" else "Transfer: Toko ➔ Gudang",
+                    keterangan = "Transfer $qty unit dari $fromStore ke $toStore${if (note.isNotBlank()) " • $note" else ""}".trim(),
+                    namaToko = "$fromStore ➔ $toStore"
                 )
             )
         }

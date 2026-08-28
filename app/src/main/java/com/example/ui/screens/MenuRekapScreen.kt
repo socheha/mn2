@@ -69,6 +69,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -894,61 +895,98 @@ fun MenuRekapScreen(
                     }
                 } else {
                     items(filteredCashMutations, key = { it.id }) { mutation ->
+                        val isMasuk = mutation.jenis == "MASUK" || (mutation.jenis == "PENYESUAIAN" && mutation.nominal >= 0)
+                        val isPenyesuaian = mutation.jenis == "PENYESUAIAN"
+
                         Card(
                             modifier = Modifier.fillMaxWidth(),
                             shape = RoundedCornerShape(12.dp),
                             colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
                             elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
                         ) {
-                            Row(
+                            Column(
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .padding(14.dp),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically
+                                    .padding(12.dp)
                             ) {
-                                Column(modifier = Modifier.weight(1f)) {
-                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Row(
+                                        modifier = Modifier.weight(1f),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
                                         Surface(
                                             shape = RoundedCornerShape(4.dp),
-                                            color = if (mutation.jenis == "MASUK") Color(0xFFE8F5E9) else Color(0xFFFFEBEE),
+                                            color = if (mutation.accountType == "TUNAI") Color(0xFFE8F5E9) else Color(0xFFE3F2FD),
                                             modifier = Modifier.padding(end = 6.dp)
                                         ) {
                                             Text(
                                                 text = "${mutation.accountType} • ${mutation.jenis}",
                                                 style = MaterialTheme.typography.labelSmall,
                                                 fontWeight = FontWeight.Bold,
-                                                color = if (mutation.jenis == "MASUK") Color(0xFF2E7D32) else Color(0xFFD32F2F),
+                                                color = if (isMasuk) Color(0xFF2E7D32) else Color(0xFFD32F2F),
                                                 modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
                                             )
                                         }
                                         Text(
                                             text = mutation.kategori,
                                             fontWeight = FontWeight.Bold,
-                                            fontSize = 14.sp
+                                            fontSize = 13.sp,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis
                                         )
                                     }
-                                    Spacer(modifier = Modifier.height(4.dp))
+
+                                    Spacer(modifier = Modifier.width(8.dp))
+
                                     Text(
-                                        text = "Tanggal: ${Formatters.formatDateToIndonesian(mutation.tanggal)} • Saldo: ${Formatters.formatRupiah(mutation.saldoSesudah)}",
-                                        fontSize = 12.sp,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        text = "${if (isMasuk) "+" else "-"}${Formatters.formatRupiah(kotlin.math.abs(mutation.nominal))}",
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = 14.sp,
+                                        color = if (isPenyesuaian) Color(0xFFE65100)
+                                        else if (isMasuk) Color(0xFF2E7D32)
+                                        else Color(0xFFC62828)
                                     )
-                                    if (mutation.keterangan.isNotBlank()) {
+                                }
+
+                                if (mutation.keterangan.isNotBlank()) {
+                                    Spacer(modifier = Modifier.height(6.dp))
+                                    Surface(
+                                        shape = RoundedCornerShape(6.dp),
+                                        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f),
+                                        modifier = Modifier.fillMaxWidth()
+                                    ) {
                                         Text(
-                                            text = "Ket: ${mutation.keterangan}",
+                                            text = mutation.keterangan,
                                             fontSize = 11.sp,
-                                            color = MaterialTheme.colorScheme.outline
+                                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 5.dp),
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
                                         )
                                     }
                                 }
 
-                                Text(
-                                    text = if (mutation.jenis == "MASUK") "+${Formatters.formatRupiah(mutation.nominal)}" else "-${Formatters.formatRupiah(mutation.nominal)}",
-                                    fontWeight = FontWeight.Bold,
-                                    fontSize = 14.sp,
-                                    color = if (mutation.jenis == "MASUK") Color(0xFF2E7D32) else Color(0xFFD32F2F)
-                                )
+                                Spacer(modifier = Modifier.height(6.dp))
+
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Text(
+                                        text = mutation.tanggal,
+                                        fontSize = 11.sp,
+                                        color = MaterialTheme.colorScheme.outline
+                                    )
+                                    Text(
+                                        text = "Saldo: ${Formatters.formatRupiah(mutation.saldoSesudah)}",
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.SemiBold,
+                                        color = Color(0xFF1565C0)
+                                    )
+                                }
                             }
                         }
                     }
