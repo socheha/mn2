@@ -84,6 +84,8 @@ object AutoBackupManager {
             .apply()
     }
 
+    private val backupMutex = kotlinx.coroutines.sync.Mutex()
+
     /**
      * Compute next scheduled midnight / 24-hour backup time in milliseconds
      */
@@ -97,8 +99,8 @@ object AutoBackupManager {
         }
 
         val now = System.currentTimeMillis()
-        if (calendar.timeInMillis <= now) {
-            val freq = getAutoBackupFrequency(context)
+        val freq = getAutoBackupFrequency(context)
+        while (calendar.timeInMillis <= now) {
             when (freq) {
                 FREQ_12_HOURS -> calendar.add(Calendar.HOUR_OF_DAY, 12)
                 FREQ_6_HOURS -> calendar.add(Calendar.HOUR_OF_DAY, 6)
@@ -150,7 +152,13 @@ object AutoBackupManager {
 
             val nextTrigger = getNextScheduledBackupTimeMillis(context)
 
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                if (alarmManager.canScheduleExactAlarms()) {
+                    alarmManager.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, nextTrigger, pendingIntent)
+                } else {
+                    alarmManager.set(AlarmManager.RTC_WAKEUP, nextTrigger, pendingIntent)
+                }
+            } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
                 alarmManager.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, nextTrigger, pendingIntent)
             } else {
                 alarmManager.set(AlarmManager.RTC_WAKEUP, nextTrigger, pendingIntent)
@@ -207,6 +215,9 @@ object AutoBackupManager {
      * Immediately triggers an automatic backup execution and saves to the configured storage location.
      */
     suspend fun performAutoBackup(context: Context, db: AppDatabase): String = withContext(Dispatchers.IO) {
+        if (!backupMutex.tryLock()) {
+            return@withContext "Proses cadangan otomatis sedang berlangsung..."
+        }
         try {
             val jsonStr = AppBackupUtils.exportDatabaseToJson(db)
             val dateStr = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.getDefault()).format(Date())
@@ -220,8 +231,8 @@ object AutoBackupManager {
                 os.write(jsonBytes)
             }
 
-            // Also keep continuous pre_update_snapshot and auto_backup_latest
-            AppBackupUtils.saveContinuousSnapshot(context, db)
+            // Also keep continuous pre_update_snapshot and auto_backup_latest with already-exported json
+            AppBackupUtils.saveContinuousSnapshot(context, db, precomputedJson = jsonStr)
 
             // Save to preferred storage location (Custom Folder / SAF, Documents, Downloads, etc.)
             val preferredResult = StorageLocationManager.writeBytesToPreferredStorage(
@@ -242,6 +253,8 @@ object AutoBackupManager {
             val errMsg = "Gagal melakukan auto backup: ${e.message}"
             setLastBackupResult(context, System.currentTimeMillis(), errMsg)
             errMsg
+        } finally {
+            backupMutex.unlock()
         }
     }
 

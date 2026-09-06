@@ -84,10 +84,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             }
         }
 
-        // Proactively keep continuous snapshot synchronized on data changes
+        // Proactively keep continuous snapshot synchronized on data changes (with throttle to prevent disk overload)
         viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            var lastSnapshotTime = 0L
             itemDao.getAllItems().collect { items ->
-                if (items.isNotEmpty()) {
+                val now = System.currentTimeMillis()
+                if (items.isNotEmpty() && (now - lastSnapshotTime > 10000L)) {
+                    lastSnapshotTime = now
                     com.example.util.AppBackupUtils.saveContinuousSnapshot(application, db)
                 }
             }
@@ -308,12 +311,19 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun runAutoBackupNow(onResult: (String) -> Unit) {
         viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
-            val msg = com.example.util.AutoBackupManager.performAutoBackup(getApplication(), db)
-            _lastAutoBackupTime.value = com.example.util.AutoBackupManager.getLastBackupTimestamp(getApplication())
-            _lastAutoBackupStatus.value = com.example.util.AutoBackupManager.getLastBackupStatus(getApplication())
-            _nextScheduledBackupTime.value = com.example.util.AutoBackupManager.getNextScheduledBackupFormatted(getApplication())
-            kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
-                onResult(msg)
+            try {
+                val msg = com.example.util.AutoBackupManager.performAutoBackup(getApplication(), db)
+                _lastAutoBackupTime.value = com.example.util.AutoBackupManager.getLastBackupTimestamp(getApplication())
+                _lastAutoBackupStatus.value = com.example.util.AutoBackupManager.getLastBackupStatus(getApplication())
+                _nextScheduledBackupTime.value = com.example.util.AutoBackupManager.getNextScheduledBackupFormatted(getApplication())
+                kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
+                    onResult(msg)
+                }
+            } catch (e: Exception) {
+                e.printStackTrace()
+                kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
+                    onResult("Gagal melakukan auto backup: ${e.localizedMessage ?: "Terjadi kesalahan sistem"}")
+                }
             }
         }
     }
@@ -774,7 +784,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         hargaModal: Double,
         keterangan: String,
         stokUtamaInput: Int? = null,
-        stokCabangInput: Int? = null
+        stokCabangInput: Int? = null,
+        onItemCreated: ((ItemEntity) -> Unit)? = null
     ) {
         viewModelScope.launch {
             val sUtama = stokUtamaInput ?: stok
@@ -791,6 +802,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 keterangan = keterangan.trim()
             )
             val id = itemDao.insertItem(newItem)
+            val savedItem = newItem.copy(id = id)
             stockHistoryDao.insertHistory(
                 StockHistoryEntity(
                     itemId = id,
@@ -804,6 +816,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     namaToko = "Semua Toko"
                 )
             )
+            kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
+                onItemCreated?.invoke(savedItem)
+            }
         }
     }
 
@@ -1109,17 +1124,38 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val _incomingCart = MutableStateFlow<List<CartItemIncoming>>(emptyList())
     val incomingCart: StateFlow<List<CartItemIncoming>> = _incomingCart.asStateFlow()
 
-    fun addIncomingCartItem(item: ItemEntity, qty: Int = 1) {
+    fun addIncomingCartItem(item: ItemEntity, qty: Int = 1, customCost: Double? = null) {
         val current = _incomingCart.value.toMutableList()
         val index = current.indexOfFirst { it.item.id == item.id }
         val addQty = qty.coerceAtLeast(1)
+        val finalCost = if (customCost != null && customCost > 0.0) customCost else item.hargaModal
         if (index != -1) {
             val existing = current[index]
-            current[index] = existing.copy(jumlahMasuk = existing.jumlahMasuk + addQty)
+            current[index] = existing.copy(
+                jumlahMasuk = existing.jumlahMasuk + addQty,
+                hargaModal = if (customCost != null && customCost > 0.0) customCost else existing.hargaModal
+            )
         } else {
-            current.add(CartItemIncoming(item = item, jumlahMasuk = addQty, hargaModal = item.hargaModal))
+            current.add(CartItemIncoming(item = item, jumlahMasuk = addQty, hargaModal = finalCost))
         }
         _incomingCart.value = current
+    }
+
+    fun updateItemPriceDirect(itemId: Long, newPrice: Double, onSuccess: (() -> Unit)? = null) {
+        viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            val item = itemDao.getItemById(itemId)
+            if (item != null && newPrice > 0.0) {
+                itemDao.updateItemPrice(itemId, newPrice)
+                itemDao.updateItem(item.copy(hargaModal = newPrice, updatedAt = System.currentTimeMillis()))
+                val currentCart = _incomingCart.value.map {
+                    if (it.item.id == itemId) it.copy(item = it.item.copy(hargaModal = newPrice)) else it
+                }
+                _incomingCart.value = currentCart
+                kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
+                    onSuccess?.invoke()
+                }
+            }
+        }
     }
 
     fun updateIncomingCartQuantity(itemId: Long, qty: Int) {
@@ -1150,9 +1186,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         val index = current.indexOfFirst { it.item.id == itemId }
         if (index != -1) {
             val cartItem = current[index]
-            if (cartItem.item.hargaModal > 0.0 && cartItem.hargaModal > 0.0) {
-                val avg = (cartItem.item.hargaModal + cartItem.hargaModal) / 2.0
-                current[index] = cartItem.copy(hargaModal = avg)
+            val stokAda = cartItem.item.totalStokCombined.coerceAtLeast(0)
+            val masukQty = cartItem.jumlahMasuk.coerceAtLeast(1)
+            val hargaLama = cartItem.item.hargaModal
+            val hargaMasuk = cartItem.hargaModal
+            if (stokAda > 0 && hargaLama > 0.0 && hargaMasuk > 0.0) {
+                val weightedAvg = ((stokAda * hargaLama) + (masukQty * hargaMasuk)) / (stokAda + masukQty)
+                current[index] = cartItem.copy(hargaModal = weightedAvg)
                 _incomingCart.value = current
             }
         }
@@ -1329,36 +1369,40 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         val newUtama = currentItem.actualStokUtama + cartItem.jumlahMasuk
                         val newCabang = currentItem.actualStokCabang
                         val totalS = newUtama + newCabang
-                        itemDao.updateStoreStocks(
-                            id = currentItem.id,
-                            stokUtama = newUtama,
-                            stokCabang = newCabang,
-                            totalStok = totalS
-                        )
-
-                        // Calculate average cost price if entered price differs from database
-                        val finalHargaModal = if (currentItem.hargaModal > 0.0 && cartItem.hargaModal > 0.0 && cartItem.hargaModal != currentItem.hargaModal) {
-                            (currentItem.hargaModal + cartItem.hargaModal) / 2.0
+                        // Calculate weighted average cost if incoming price differs from master data
+                        val stokAda = maxOf(0, stokAwal)
+                        val masukQty = maxOf(1, cartItem.jumlahMasuk)
+                        val totalGabungan = stokAda + masukQty
+                        val finalHargaModal = if (stokAda > 0 && currentItem.hargaModal > 0.0 && cartItem.hargaModal > 0.0 && cartItem.hargaModal != currentItem.hargaModal) {
+                            kotlin.math.round(((stokAda * currentItem.hargaModal) + (masukQty * cartItem.hargaModal)) / totalGabungan)
                         } else if (cartItem.hargaModal > 0.0) {
                             cartItem.hargaModal
                         } else {
                             currentItem.hargaModal
                         }
 
-                        if (finalHargaModal > 0) {
-                            itemDao.updateItem(
-                                currentItem.copy(
-                                    stokTokoUtama = newUtama,
-                                    stokTokoCabang = newCabang,
-                                    stok = totalS,
-                                    hargaModal = finalHargaModal,
-                                    updatedAt = System.currentTimeMillis()
-                                )
-                            )
-                        }
+                        itemDao.updateStoreStocksAndPrice(
+                            id = currentItem.id,
+                            stokUtama = newUtama,
+                            stokCabang = newCabang,
+                            totalStok = totalS,
+                            hargaModal = finalHargaModal
+                        )
 
-                        val avgNote = if (currentItem.hargaModal > 0.0 && cartItem.hargaModal > 0.0 && cartItem.hargaModal != currentItem.hargaModal) {
-                            " (HPP Rata-rata: Rp ${finalHargaModal.toInt()} dari Rp ${currentItem.hargaModal.toInt()} & Rp ${cartItem.hargaModal.toInt()})"
+                        itemDao.updateItem(
+                            currentItem.copy(
+                                stokTokoUtama = newUtama,
+                                stokTokoCabang = newCabang,
+                                stok = totalS,
+                                hargaModal = finalHargaModal,
+                                updatedAt = System.currentTimeMillis()
+                            )
+                        )
+
+                        val priceChangeNote = if (stokAda > 0 && currentItem.hargaModal > 0.0 && cartItem.hargaModal > 0.0 && cartItem.hargaModal != currentItem.hargaModal) {
+                            " (HPP Rata-rata: Rp ${finalHargaModal.toInt()} [Stok Lama: $stokAda @ Rp ${currentItem.hargaModal.toInt()} + Masuk: $masukQty @ Rp ${cartItem.hargaModal.toInt()}])"
+                        } else if (currentItem.hargaModal > 0.0 && cartItem.hargaModal > 0.0 && cartItem.hargaModal != currentItem.hargaModal) {
+                            " (Harga Modal baru: Rp ${cartItem.hargaModal.toInt()} dari Rp ${currentItem.hargaModal.toInt()})"
                         } else ""
 
                         stockHistoryDao.insertHistory(
@@ -1370,7 +1414,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                                 stokAwal = stokAwal,
                                 stokAkhir = totalS,
                                 jenis = "Barang Masuk",
-                                keterangan = "Faktur: ${fakturNumber.ifBlank { "Supplier $supplierName" }}$avgNote"
+                                keterangan = "Faktur: ${fakturNumber.ifBlank { "Supplier $supplierName" }}$priceChangeNote"
                             )
                         )
                     }
@@ -2651,35 +2695,39 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     val newUtama = oldUtama + newItem.jumlahMasuk
                     val totalS = newUtama + oldCabang
 
-                    itemDao.updateStoreStocks(
-                        id = product.id,
-                        stokUtama = newUtama,
-                        stokCabang = oldCabang,
-                        totalStok = totalS
-                    )
-
-                    val finalHargaModal = if (product.hargaModal > 0.0 && newItem.hargaModal > 0.0 && newItem.hargaModal != product.hargaModal) {
-                        (product.hargaModal + newItem.hargaModal) / 2.0
+                    val stokAda = maxOf(0, product.totalStokCombined)
+                    val masukQty = maxOf(1, newItem.jumlahMasuk)
+                    val totalGabungan = stokAda + masukQty
+                    val finalHargaModal = if (stokAda > 0 && product.hargaModal > 0.0 && newItem.hargaModal > 0.0 && newItem.hargaModal != product.hargaModal) {
+                        kotlin.math.round(((stokAda * product.hargaModal) + (masukQty * newItem.hargaModal)) / totalGabungan)
                     } else if (newItem.hargaModal > 0.0) {
                         newItem.hargaModal
                     } else {
                         product.hargaModal
                     }
 
-                    if (finalHargaModal > 0) {
-                        itemDao.updateItem(
-                            product.copy(
-                                stokTokoUtama = newUtama,
-                                stokTokoCabang = oldCabang,
-                                stok = totalS,
-                                hargaModal = finalHargaModal,
-                                updatedAt = System.currentTimeMillis()
-                            )
-                        )
-                    }
+                    itemDao.updateStoreStocksAndPrice(
+                        id = product.id,
+                        stokUtama = newUtama,
+                        stokCabang = oldCabang,
+                        totalStok = totalS,
+                        hargaModal = finalHargaModal
+                    )
 
-                    val avgNote = if (product.hargaModal > 0.0 && newItem.hargaModal > 0.0 && newItem.hargaModal != product.hargaModal) {
-                        " (HPP Rata-rata: Rp ${finalHargaModal.toInt()} dari Rp ${product.hargaModal.toInt()} & Rp ${newItem.hargaModal.toInt()})"
+                    itemDao.updateItem(
+                        product.copy(
+                            stokTokoUtama = newUtama,
+                            stokTokoCabang = oldCabang,
+                            stok = totalS,
+                            hargaModal = finalHargaModal,
+                            updatedAt = System.currentTimeMillis()
+                        )
+                    )
+
+                    val priceChangeNote = if (stokAda > 0 && product.hargaModal > 0.0 && newItem.hargaModal > 0.0 && newItem.hargaModal != product.hargaModal) {
+                        " (HPP Rata-rata: Rp ${finalHargaModal.toInt()} [Stok Lama: $stokAda @ Rp ${product.hargaModal.toInt()} + Masuk: $masukQty @ Rp ${newItem.hargaModal.toInt()}])"
+                    } else if (product.hargaModal > 0.0 && newItem.hargaModal > 0.0 && newItem.hargaModal != product.hargaModal) {
+                        " (Harga Modal baru: Rp ${newItem.hargaModal.toInt()} dari Rp ${product.hargaModal.toInt()})"
                     } else ""
 
                     stockHistoryDao.insertHistory(
@@ -2691,7 +2739,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                             stokAwal = product.totalStokCombined,
                             stokAkhir = totalS,
                             jenis = "Edit Barang Masuk",
-                            keterangan = "Perubahan Transaksi Barang Masuk #${oldTx.id}$avgNote",
+                            keterangan = "Perubahan Transaksi Barang Masuk #${oldTx.id}$priceChangeNote",
                             namaToko = "Toko Utama"
                         )
                     )
@@ -2996,13 +3044,48 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun restoreFromLatestAutoSnapshot(onResult: (Boolean, String) -> Unit) {
         viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
-            val result = com.example.util.AppBackupUtils.restoreFromLatestAutoSnapshot(getApplication(), db)
-            kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
-                result.fold(
-                    onSuccess = { msg -> onResult(true, msg) },
-                    onFailure = { err -> onResult(false, err.message ?: "Gagal restore") }
-                )
+            try {
+                val result = com.example.util.AppBackupUtils.restoreFromLatestAutoSnapshot(getApplication(), db)
+                kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
+                    result.fold(
+                        onSuccess = { msg -> onResult(true, msg) },
+                        onFailure = { err -> onResult(false, err.message ?: "Gagal restore") }
+                    )
+                }
+            } catch (e: Exception) {
+                e.printStackTrace()
+                kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
+                    onResult(false, "Gagal memulihkan snapshot: ${e.localizedMessage ?: "Terjadi kesalahan"}")
+                }
             }
+        }
+    }
+
+    fun createSnapshotNow(onResult: (Boolean, String) -> Unit) {
+        viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            try {
+                com.example.util.AppBackupUtils.saveContinuousSnapshot(getApplication(), db)
+                kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
+                    onResult(true, "Snapshot cadangan berhasil dibuat dan disimpan.")
+                }
+            } catch (e: Exception) {
+                e.printStackTrace()
+                kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
+                    onResult(false, "Gagal membuat snapshot: ${e.message}")
+                }
+            }
+        }
+    }
+
+    suspend fun loadRecoveryFilesList(): List<java.io.File> = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+        try {
+            (com.example.util.AppBackupUtils.getAllRecoveryFiles(getApplication()) +
+             com.example.util.AutoBackupManager.getLocalAutoBackupFiles(getApplication()))
+                .distinctBy { it.absolutePath }
+                .sortedByDescending { it.lastModified() }
+        } catch (e: Exception) {
+            e.printStackTrace()
+            emptyList()
         }
     }
 

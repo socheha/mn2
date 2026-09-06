@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -47,6 +48,7 @@ import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
@@ -103,6 +105,8 @@ fun MenuBarangMasukScreen(
     var nominalTransferSplitInput by remember { mutableStateOf("") }
     var calcTargetField by remember { mutableStateOf<String?>(null) } // "split_tunai", "split_transfer", or cart item ID string
     var showScanReceiptDialog by remember { mutableStateOf(false) }
+    var showCreateNewItemDialog by remember { mutableStateOf(false) }
+    var newInitialItemName by remember { mutableStateOf("") }
 
     androidx.compose.runtime.LaunchedEffect(allCashAccounts) {
         if (bankAccounts.isNotEmpty() && (selectedBankCode == "BANK" || bankAccounts.none { it.accountType == selectedBankCode })) {
@@ -206,12 +210,30 @@ fun MenuBarangMasukScreen(
                     elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
                 ) {
                     Column(modifier = Modifier.padding(16.dp)) {
-                        Text(
-                            text = "Tambah Barang Masuk",
-                            style = MaterialTheme.typography.titleSmall,
-                            fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.primary
-                        )
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = "Tambah Barang Masuk",
+                                style = MaterialTheme.typography.titleSmall,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.primary
+                            )
+                            OutlinedButton(
+                                onClick = {
+                                    newInitialItemName = ""
+                                    showCreateNewItemDialog = true
+                                },
+                                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
+                                modifier = Modifier.height(30.dp)
+                            ) {
+                                Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(14.dp))
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text("Barang Baru", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                            }
+                        }
                         Spacer(modifier = Modifier.height(6.dp))
                         Text(
                             text = "Ketik nama/kode barang untuk langsung memilih:",
@@ -228,16 +250,21 @@ fun MenuBarangMasukScreen(
                             itemsList = allItemsList,
                             draftItemQuantities = draftQuantitiesMap,
                             isPenjualanMode = false,
-                            onItemSelectedWithQty = { selectedItem, qty ->
+                            onItemSelectedWithQtyAndPrice = { selectedItem, qty, customCost ->
                                 val currentQty = draftQuantitiesMap[selectedItem.id] ?: 0
-                                viewModel.addIncomingCartItem(selectedItem, qty)
+                                viewModel.addIncomingCartItem(selectedItem, qty, customCost)
                                 val newQty = currentQty + qty
+                                val priceFormatted = if (customCost != null && customCost > 0.0) " @ ${Formatters.formatRupiah(customCost)}" else ""
                                 val toastMsg = if (currentQty > 0) {
-                                    "'${selectedItem.namaBarang}' ditambah (+$qty) di draf (Total: $newQty)"
+                                    "'${selectedItem.namaBarang}' ditambah (+$qty) di draf$priceFormatted (Total: $newQty)"
                                 } else {
-                                    "'${selectedItem.namaBarang}' x$qty dimasukkan ke draf"
+                                    "'${selectedItem.namaBarang}' x$qty dimasukkan ke draf$priceFormatted"
                                 }
                                 Toast.makeText(context, toastMsg, Toast.LENGTH_SHORT).show()
+                            },
+                            onAddNewItemClick = { queryName ->
+                                newInitialItemName = queryName
+                                showCreateNewItemDialog = true
                             }
                         )
 
@@ -412,38 +439,128 @@ fun MenuBarangMasukScreen(
                                 )
                             }
 
-                            // Price Averaging Indicator Banner
-                            if (cartItem.item.hargaModal > 0.0 && cartItem.hargaModal > 0.0 && cartItem.hargaModal != cartItem.item.hargaModal) {
-                                val avgPrice = (cartItem.item.hargaModal + cartItem.hargaModal) / 2.0
+                            // Price Change & Weighted Average Notification Banner
+                            val currentMasterItem = allItemsList.find { it.id == cartItem.item.id } ?: cartItem.item
+                            val stokAda = currentMasterItem.totalStokCombined.coerceAtLeast(0)
+                            val masukQty = cartItem.jumlahMasuk.coerceAtLeast(1)
+                            val totalGabungan = stokAda + masukQty
+                            val hargaLama = currentMasterItem.hargaModal
+                            val hargaMasuk = cartItem.hargaModal
+                            val isPriceDifferent = hargaMasuk > 0.0 && (hargaLama <= 0.0 || hargaMasuk != hargaLama)
+                            val calculatedAvgCost = if (stokAda > 0 && hargaLama > 0.0 && hargaMasuk > 0.0) {
+                                kotlin.math.round(((stokAda * hargaLama) + (masukQty * hargaMasuk)) / totalGabungan)
+                            } else {
+                                hargaMasuk
+                            }
+                            val selisihHargaPerUnit = hargaMasuk - hargaLama
+
+                            if (isPriceDifferent) {
                                 Spacer(modifier = Modifier.height(6.dp))
                                 Surface(
-                                    shape = RoundedCornerShape(8.dp),
-                                    color = Color(0xFFFFF3E0),
+                                    shape = RoundedCornerShape(10.dp),
+                                    color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.35f),
                                     modifier = Modifier.fillMaxWidth()
                                 ) {
-                                    Row(
-                                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
-                                        verticalAlignment = Alignment.CenterVertically,
-                                        horizontalArrangement = Arrangement.SpaceBetween
-                                    ) {
-                                        Column(modifier = Modifier.weight(1f)) {
-                                            Text(
-                                                text = "⚖️ Harga beda dari database (Rp ${cartItem.item.hargaModal.toInt()})",
-                                                fontSize = 11.sp,
-                                                fontWeight = FontWeight.SemiBold,
-                                                color = Color(0xFFE65100)
-                                            )
-                                            Text(
-                                                text = "Otomatis dihitung rata-rata / pertengahan: ${Formatters.formatRupiah(avgPrice)}",
-                                                fontSize = 10.sp,
-                                                color = Color(0xFFBF360C)
-                                            )
-                                        }
-                                        TextButton(
-                                            onClick = { viewModel.applyAverageCostForIncomingItem(cartItem.item.id) },
-                                            contentPadding = PaddingValues(horizontal = 6.dp, vertical = 0.dp)
+                                    Column(modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)) {
+                                        Row(
+                                            modifier = Modifier.fillMaxWidth(),
+                                            horizontalArrangement = Arrangement.SpaceBetween,
+                                            verticalAlignment = Alignment.CenterVertically
                                         ) {
-                                            Text("Terapkan Rata2", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = Color(0xFFE65100))
+                                            Text(
+                                                text = "⚖️ Penyesuaian Harga Otomatis",
+                                                fontSize = 11.sp,
+                                                fontWeight = FontWeight.Bold,
+                                                color = MaterialTheme.colorScheme.primary
+                                            )
+                                            if (hargaLama > 0.0) {
+                                                val tanda = if (selisihHargaPerUnit >= 0) "+" else ""
+                                                Text(
+                                                    text = "Selisih: $tanda${Formatters.formatRupiah(selisihHargaPerUnit)}",
+                                                    fontSize = 11.sp,
+                                                    fontWeight = FontWeight.Bold,
+                                                    color = if (selisihHargaPerUnit >= 0) Color(0xFFC62828) else Color(0xFF2E7D32)
+                                                )
+                                            }
+                                        }
+
+                                        Spacer(modifier = Modifier.height(4.dp))
+
+                                        Row(
+                                            modifier = Modifier.fillMaxWidth(),
+                                            horizontalArrangement = Arrangement.SpaceBetween,
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            Column {
+                                                Text(
+                                                    text = "Stok Ada: $stokAda unit @ ${Formatters.formatRupiah(hargaLama)}",
+                                                    fontSize = 11.sp,
+                                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                                )
+                                                Text(
+                                                    text = "Masuk: $masukQty unit @ ${Formatters.formatRupiah(hargaMasuk)}",
+                                                    fontSize = 11.sp,
+                                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                                )
+                                            }
+                                            Surface(
+                                                shape = RoundedCornerShape(6.dp),
+                                                color = MaterialTheme.colorScheme.primary.copy(alpha = 0.12f),
+                                                modifier = Modifier.padding(start = 4.dp)
+                                            ) {
+                                                Column(modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)) {
+                                                    Text(
+                                                        text = "HPP Otomatis:",
+                                                        fontSize = 10.sp,
+                                                        color = MaterialTheme.colorScheme.primary,
+                                                        fontWeight = FontWeight.Medium
+                                                    )
+                                                    Text(
+                                                        text = Formatters.formatRupiah(calculatedAvgCost),
+                                                        fontSize = 12.sp,
+                                                        fontWeight = FontWeight.ExtraBold,
+                                                        color = MaterialTheme.colorScheme.primary
+                                                    )
+                                                }
+                                            }
+                                        }
+
+                                        Spacer(modifier = Modifier.height(4.dp))
+                                        Text(
+                                            text = "✅ Saat transaksi disimpan, master barang otomatis disesuaikan ke HPP ${Formatters.formatRupiah(calculatedAvgCost)} (berdasarkan total $totalGabungan unit).",
+                                            fontSize = 10.sp,
+                                            fontWeight = FontWeight.Medium,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+
+                                        Spacer(modifier = Modifier.height(6.dp))
+                                        Row(
+                                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            OutlinedButton(
+                                                onClick = {
+                                                    viewModel.updateItemPriceDirect(cartItem.item.id, calculatedAvgCost) {
+                                                        Toast.makeText(context, "HPP master '${cartItem.item.namaBarang}' langsung diperbarui ke ${Formatters.formatRupiah(calculatedAvgCost)}", Toast.LENGTH_SHORT).show()
+                                                    }
+                                                },
+                                                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
+                                                modifier = Modifier.height(28.dp)
+                                            ) {
+                                                Text("⚡ Update Master Sekarang", fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                                            }
+
+                                            if (hargaLama > 0.0) {
+                                                TextButton(
+                                                    onClick = {
+                                                        viewModel.updateIncomingCartCost(cartItem.item.id, hargaLama)
+                                                    },
+                                                    contentPadding = PaddingValues(horizontal = 6.dp, vertical = 2.dp),
+                                                    modifier = Modifier.height(28.dp)
+                                                ) {
+                                                    Text("Pakai Harga Lama", fontSize = 10.sp, color = MaterialTheme.colorScheme.outline)
+                                                }
+                                            }
                                         }
                                     }
                                 }
@@ -1370,6 +1487,34 @@ fun MenuBarangMasukScreen(
                 androidx.compose.material3.OutlinedButton(onClick = { incomingTransactionToCancel = null }) {
                     Text("Tidak")
                 }
+            }
+        )
+    }
+
+    if (showCreateNewItemDialog) {
+        ItemFormDialog(
+            title = "Tambah Barang Baru ke Master",
+            initialKode = "SKU-${System.currentTimeMillis().toString().takeLast(6)}",
+            initialNama = newInitialItemName,
+            initialStok = "0",
+            initialHargaModal = "",
+            initialKeterangan = "Didaftarkan dari Menu Barang Masuk",
+            onDismiss = { showCreateNewItemDialog = false },
+            onConfirm = { kode, nama, stok, harga, ket ->
+                val cost = harga.toDoubleOrNull() ?: 0.0
+                val inputQty = stok.toIntOrNull() ?: 0
+                viewModel.addItem(
+                    kodeBarang = kode,
+                    namaBarang = nama,
+                    stok = inputQty,
+                    hargaModal = cost,
+                    keterangan = ket,
+                    onItemCreated = { newItem ->
+                        viewModel.addIncomingCartItem(newItem, qty = maxOf(1, inputQty), customCost = cost)
+                    }
+                )
+                showCreateNewItemDialog = false
+                Toast.makeText(context, "Barang '$nama' berhasil didaftarkan ke master & dimasukkan ke draf!", Toast.LENGTH_SHORT).show()
             }
         )
     }

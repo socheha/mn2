@@ -11,6 +11,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -27,6 +28,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Backup
+import androidx.compose.material.icons.filled.CameraAlt
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.CloudDone
 import androidx.compose.material.icons.filled.CloudOff
@@ -39,10 +41,12 @@ import androidx.compose.material.icons.filled.FileDownload
 import androidx.compose.material.icons.filled.FileUpload
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.FolderSpecial
+import androidx.compose.material.icons.filled.Inventory2
 import androidx.compose.material.icons.filled.LightMode
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.LockOpen
 import androidx.compose.material.icons.filled.Palette
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Restore
 import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material.icons.filled.SdStorage
@@ -58,7 +62,9 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Divider
+import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -73,6 +79,7 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -164,7 +171,25 @@ fun MenuPengaturanScreen(viewModel: MainViewModel) {
     var isProcessing by remember { mutableStateOf(false) }
 
     var showAutoBackupListDialog by remember { mutableStateOf(false) }
+    var snapshotFilesList by remember { mutableStateOf<List<java.io.File>>(emptyList()) }
+    var isLoadingSnapshotFiles by remember { mutableStateOf(false) }
+    var latestSnapshotFile by remember { mutableStateOf<java.io.File?>(null) }
     var showSyncQueueListDialog by remember { mutableStateOf(false) }
+
+    LaunchedEffect(showAutoBackupListDialog) {
+        if (showAutoBackupListDialog) {
+            isLoadingSnapshotFiles = true
+            snapshotFilesList = viewModel.loadRecoveryFilesList()
+            isLoadingSnapshotFiles = false
+        }
+    }
+
+    LaunchedEffect(showConfirmPreUpdateRestoreDialog) {
+        if (showConfirmPreUpdateRestoreDialog) {
+            val list = viewModel.loadRecoveryFilesList()
+            latestSnapshotFile = list.firstOrNull()
+        }
+    }
 
     // File Picker for Restore JSON
     val restoreFilePickerLauncher = rememberLauncherForActivityResult(
@@ -718,20 +743,31 @@ fun MenuPengaturanScreen(viewModel: MainViewModel) {
             // Action Buttons
             Button(
                 onClick = {
-                    isProcessing = true
-                    viewModel.runAutoBackupNow { msg ->
-                        isProcessing = false
-                        Toast.makeText(context, msg, Toast.LENGTH_LONG).show()
+                    if (!isProcessing) {
+                        isProcessing = true
+                        viewModel.runAutoBackupNow { msg ->
+                            isProcessing = false
+                            Toast.makeText(context, msg, Toast.LENGTH_LONG).show()
+                        }
                     }
                 },
+                enabled = !isProcessing,
                 modifier = Modifier.fillMaxWidth().testTag("btn_run_auto_backup_now"),
                 shape = RoundedCornerShape(10.dp),
                 colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
             ) {
-                Icon(Icons.Default.Backup, contentDescription = null, modifier = Modifier.size(18.dp))
+                if (isProcessing) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(18.dp),
+                        strokeWidth = 2.dp,
+                        color = Color.White
+                    )
+                } else {
+                    Icon(Icons.Default.Backup, contentDescription = null, modifier = Modifier.size(18.dp))
+                }
                 Spacer(modifier = Modifier.width(8.dp))
                 Text(
-                    text = if (isProcessing) "Memproses Cadangan..." else "Jalankan Auto Backup Sekarang",
+                    text = if (isProcessing) "Sedang Memproses Cadangan..." else "Jalankan Auto Backup Sekarang",
                     fontSize = 13.sp,
                     fontWeight = FontWeight.Bold
                 )
@@ -745,6 +781,7 @@ fun MenuPengaturanScreen(viewModel: MainViewModel) {
             ) {
                 OutlinedButton(
                     onClick = { showAutoBackupListDialog = true },
+                    enabled = !isProcessing,
                     modifier = Modifier.weight(1f),
                     shape = RoundedCornerShape(10.dp)
                 ) {
@@ -755,6 +792,7 @@ fun MenuPengaturanScreen(viewModel: MainViewModel) {
 
                 OutlinedButton(
                     onClick = { showConfirmPreUpdateRestoreDialog = true },
+                    enabled = !isProcessing,
                     modifier = Modifier.weight(1f).testTag("btn_pulihkan_data_sebelum_update"),
                     shape = RoundedCornerShape(10.dp),
                     colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFFE65100))
@@ -1024,27 +1062,98 @@ fun MenuPengaturanScreen(viewModel: MainViewModel) {
 
     // --- DIALOG AUTO BACKUP & SNAPSHOT FILES LIST ---
     if (showAutoBackupListDialog) {
-        val files = remember {
-            (viewModel.getAllRecoveryFiles() + viewModel.getLocalAutoBackupFiles())
-                .distinctBy { it.absolutePath }
-                .sortedByDescending { it.lastModified() }
-        }
         AlertDialog(
             onDismissRequest = { showAutoBackupListDialog = false },
             title = {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(Icons.Default.Folder, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text("Daftar File Cadangan & Snapshot (${files.size})", fontWeight = FontWeight.Bold, fontSize = 16.sp)
+                Column {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
+                            Icon(Icons.Default.Folder, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                text = "File Cadangan & Snapshot (${snapshotFilesList.size})",
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 15.sp
+                            )
+                        }
+                        IconButton(
+                            onClick = {
+                                coroutineScope.launch {
+                                    isLoadingSnapshotFiles = true
+                                    snapshotFilesList = viewModel.loadRecoveryFilesList()
+                                    isLoadingSnapshotFiles = false
+                                }
+                            },
+                            modifier = Modifier.size(32.dp)
+                        ) {
+                            Icon(Icons.Default.Refresh, contentDescription = "Segarkan", tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(18.dp))
+                        }
+                    }
+                    Spacer(modifier = Modifier.height(6.dp))
+                    FilledTonalButton(
+                        onClick = {
+                            viewModel.createSnapshotNow { success, msg ->
+                                Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
+                                coroutineScope.launch {
+                                    snapshotFilesList = viewModel.loadRecoveryFilesList()
+                                }
+                            }
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(8.dp),
+                        contentPadding = PaddingValues(vertical = 6.dp)
+                    ) {
+                        Icon(Icons.Default.CameraAlt, contentDescription = null, modifier = Modifier.size(16.dp))
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text("📸 Buat Snapshot Cadangan Baru", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                    }
                 }
             },
             text = {
-                if (files.isEmpty()) {
-                    Text("Belum ada file cadangan yang tersimpan.", fontSize = 13.sp)
+                if (isLoadingSnapshotFiles) {
+                    Box(modifier = Modifier.fillMaxWidth().height(160.dp), contentAlignment = Alignment.Center) {
+                        CircularProgressIndicator(modifier = Modifier.size(36.dp))
+                    }
+                } else if (snapshotFilesList.isEmpty()) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 16.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Icon(
+                            Icons.Default.Inventory2,
+                            contentDescription = null,
+                            modifier = Modifier.size(48.dp),
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
+                        )
+                        Text(
+                            "Belum ada file snapshot cadangan.",
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.Medium,
+                            color = MaterialTheme.colorScheme.onSurface
+                        )
+                        Text(
+                            "Klik tombol di atas untuk membuat snapshot cadangan seluruh data Anda sekarang.",
+                            fontSize = 11.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                        )
+                    }
                 } else {
-                    LazyColumn(modifier = Modifier.height(300.dp)) {
-                        items(files) { file ->
+                    LazyColumn(modifier = Modifier.height(320.dp)) {
+                        items(snapshotFilesList) { file ->
                             val fileSizeKb = (file.length() / 1024.0).let { if (it < 1.0) "1 KB" else "%.1f KB".format(it) }
+                            val isExternal = file.absolutePath.contains("Download", ignoreCase = true) || file.absolutePath.contains("Document", ignoreCase = true)
+                            val locationBadge = if (file.absolutePath.contains("Download", ignoreCase = true)) "Download"
+                                else if (file.absolutePath.contains("Document", ignoreCase = true)) "Dokumen"
+                                else "Internal"
+
                             Card(
                                 modifier = Modifier
                                     .fillMaxWidth()
@@ -1059,10 +1168,26 @@ fun MenuPengaturanScreen(viewModel: MainViewModel) {
                                     verticalAlignment = Alignment.CenterVertically
                                 ) {
                                     Column(modifier = Modifier.weight(1f)) {
-                                        Text(file.name, fontWeight = FontWeight.Bold, fontSize = 12.sp, maxLines = 1)
+                                        Row(verticalAlignment = Alignment.CenterVertically) {
+                                            Surface(
+                                                shape = RoundedCornerShape(4.dp),
+                                                color = if (isExternal) Color(0xFFE8F5E9) else Color(0xFFEDE7F6)
+                                            ) {
+                                                Text(
+                                                    text = locationBadge,
+                                                    fontSize = 9.sp,
+                                                    fontWeight = FontWeight.Bold,
+                                                    color = if (isExternal) Color(0xFF2E7D32) else Color(0xFF512DA8),
+                                                    modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp)
+                                                )
+                                            }
+                                            Spacer(modifier = Modifier.width(6.dp))
+                                            Text(file.name, fontWeight = FontWeight.Bold, fontSize = 11.sp, maxLines = 1)
+                                        }
+                                        Spacer(modifier = Modifier.height(3.dp))
                                         Text(
                                             "${SimpleDateFormat("dd MMM yyyy HH:mm", Locale("id", "ID")).format(Date(file.lastModified()))} • $fileSizeKb",
-                                            fontSize = 11.sp,
+                                            fontSize = 10.sp,
                                             color = MaterialTheme.colorScheme.onSurfaceVariant
                                         )
                                     }
@@ -1085,11 +1210,14 @@ fun MenuPengaturanScreen(viewModel: MainViewModel) {
                                             onClick = {
                                                 try {
                                                     val content = file.readText(Charsets.UTF_8)
+                                                    isProcessing = true
                                                     viewModel.restoreFromBackupJson(content) { success, msg ->
+                                                        isProcessing = false
                                                         Toast.makeText(context, msg, Toast.LENGTH_LONG).show()
                                                         showAutoBackupListDialog = false
                                                     }
                                                 } catch (e: Exception) {
+                                                    isProcessing = false
                                                     Toast.makeText(context, "Gagal memulihkan: ${e.message}", Toast.LENGTH_SHORT).show()
                                                 }
                                             }
@@ -1273,45 +1401,116 @@ fun MenuPengaturanScreen(viewModel: MainViewModel) {
                 )
             },
             text = {
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text(
-                        text = "Apakah Anda ingin memulihkan seluruh data toko dari snapshot cadangan otomatis terakhir?",
-                        fontSize = 13.sp,
-                        color = MaterialTheme.colorScheme.onSurface
-                    )
-                    Surface(
-                        shape = RoundedCornerShape(8.dp),
-                        color = Color(0xFFFFF3E0),
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    val file = latestSnapshotFile
+                    if (file != null) {
+                        val fileSizeKb = (file.length() / 1024.0).let { if (it < 1.0) "1 KB" else "%.1f KB".format(it) }
+                        Surface(
+                            shape = RoundedCornerShape(8.dp),
+                            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Column(modifier = Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                Text(
+                                    text = "File Snapshot Ditemukan:",
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.primary
+                                )
+                                Text(
+                                    text = file.name,
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                    maxLines = 1
+                                )
+                                Text(
+                                    text = "${SimpleDateFormat("dd MMMM yyyy HH:mm", Locale("id", "ID")).format(Date(file.lastModified()))} • $fileSizeKb",
+                                    fontSize = 11.sp,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        }
+
                         Text(
-                            text = "ℹ️ Seluruh data barang, stok gudang & cabang, kas tunai/bank, transaksi, piutang, dan hutang akan dikembalikan ke kondisi snapshot terakhir.",
-                            fontSize = 11.sp,
-                            color = Color(0xFFBF360C),
-                            modifier = Modifier.padding(8.dp)
+                            text = "Apakah Anda ingin memulihkan seluruh data toko dari file snapshot cadangan di atas?",
+                            fontSize = 13.sp,
+                            color = MaterialTheme.colorScheme.onSurface
                         )
+
+                        Surface(
+                            shape = RoundedCornerShape(8.dp),
+                            color = Color(0xFFFFF3E0),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Text(
+                                text = "ℹ️ Data barang, stok gudang & cabang, kas tunai/bank, transaksi, piutang, dan hutang akan dikembalikan ke kondisi snapshot ini.",
+                                fontSize = 11.sp,
+                                color = Color(0xFFBF360C),
+                                modifier = Modifier.padding(8.dp)
+                            )
+                        }
+                    } else {
+                        Surface(
+                            shape = RoundedCornerShape(8.dp),
+                            color = Color(0xFFFFEBEE),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Column(modifier = Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                Text(
+                                    text = "Belum Ada Snapshot Tersimpan",
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 13.sp,
+                                    color = Color(0xFFC62828)
+                                )
+                                Text(
+                                    text = "Sistem belum menemukan file snapshot cadangan sebelumnya di memori perangkat. Anda dapat membuat snapshot cadangan sekarang.",
+                                    fontSize = 11.sp,
+                                    color = Color(0xFFB71C1C)
+                                )
+                            }
+                        }
+
+                        Button(
+                            onClick = {
+                                viewModel.createSnapshotNow { success, msg ->
+                                    Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
+                                    coroutineScope.launch {
+                                        val list = viewModel.loadRecoveryFilesList()
+                                        latestSnapshotFile = list.firstOrNull()
+                                    }
+                                }
+                            },
+                            modifier = Modifier.fillMaxWidth(),
+                            colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
+                        ) {
+                            Icon(Icons.Default.CameraAlt, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text("📸 Buat Snapshot Sekarang", fontSize = 12.sp)
+                        }
                     }
                 }
             },
             confirmButton = {
-                Button(
-                    onClick = {
-                        showConfirmPreUpdateRestoreDialog = false
-                        isProcessing = true
-                        viewModel.restoreFromLatestAutoSnapshot { success, msg ->
-                            isProcessing = false
-                            Toast.makeText(context, msg, Toast.LENGTH_LONG).show()
-                        }
-                    },
-                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFE65100)),
-                    modifier = Modifier.testTag("btn_confirm_pulihkan_snapshot_sebelum_update")
-                ) {
-                    Text("Ya, Pulihkan Sekarang", fontWeight = FontWeight.Bold)
+                if (latestSnapshotFile != null) {
+                    Button(
+                        onClick = {
+                            showConfirmPreUpdateRestoreDialog = false
+                            isProcessing = true
+                            viewModel.restoreFromLatestAutoSnapshot { success, msg ->
+                                isProcessing = false
+                                Toast.makeText(context, msg, Toast.LENGTH_LONG).show()
+                            }
+                        },
+                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFE65100)),
+                        modifier = Modifier.testTag("btn_confirm_pulihkan_snapshot_sebelum_update")
+                    ) {
+                        Text("Ya, Pulihkan Sekarang", fontWeight = FontWeight.Bold)
+                    }
                 }
             },
             dismissButton = {
                 TextButton(onClick = { showConfirmPreUpdateRestoreDialog = false }) {
-                    Text("Batal")
+                    Text(if (latestSnapshotFile != null) "Batal" else "Tutup")
                 }
             }
         )

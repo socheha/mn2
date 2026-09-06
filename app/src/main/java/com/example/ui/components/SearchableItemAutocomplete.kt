@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
@@ -19,6 +20,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Inventory2
 import androidx.compose.material.icons.filled.Search
@@ -59,10 +61,12 @@ fun SearchableItemAutocomplete(
     itemsList: List<ItemEntity>,
     onItemSelected: (ItemEntity) -> Unit = {},
     onItemSelectedWithQty: ((ItemEntity, Int) -> Unit)? = null,
+    onItemSelectedWithQtyAndPrice: ((ItemEntity, Int, Double?) -> Unit)? = null,
     placeholderText: String = "Ketik nama atau kode barang (misal: 609, 663)...",
     excludedItemIds: List<Long> = emptyList(),
     draftItemQuantities: Map<Long, Int> = emptyMap(),
     isPenjualanMode: Boolean = false,
+    onAddNewItemClick: ((String) -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     var searchQuery by remember { mutableStateOf("") }
@@ -70,6 +74,7 @@ fun SearchableItemAutocomplete(
 
     var selectedItemForQty by remember { mutableStateOf<ItemEntity?>(null) }
     var qtyInputString by remember { mutableStateOf("1") }
+    var priceInputString by remember { mutableStateOf("") }
 
     val filteredItems = remember(searchQuery, itemsList) {
         if (searchQuery.isBlank()) {
@@ -140,6 +145,7 @@ fun SearchableItemAutocomplete(
                                 .clickable {
                                     selectedItemForQty = item
                                     qtyInputString = "1"
+                                    priceInputString = if (item.hargaModal > 0) item.hargaModal.toInt().toString() else ""
                                     searchQuery = ""
                                     isExpanded = false
                                 }
@@ -253,12 +259,29 @@ fun SearchableItemAutocomplete(
                 shape = RoundedCornerShape(12.dp),
                 color = MaterialTheme.colorScheme.surfaceVariant
             ) {
-                Text(
-                    text = "Tidak ada barang ditemukan dengan kata kunci '$searchQuery'",
-                    modifier = Modifier.padding(16.dp),
-                    fontSize = 13.sp,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
+                Column(modifier = Modifier.padding(14.dp)) {
+                    Text(
+                        text = "Tidak ada barang ditemukan dengan kata kunci '$searchQuery'",
+                        fontSize = 13.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    if (onAddNewItemClick != null) {
+                        Spacer(modifier = Modifier.height(8.dp))
+                        OutlinedButton(
+                            onClick = {
+                                val q = searchQuery
+                                searchQuery = ""
+                                isExpanded = false
+                                onAddNewItemClick(q)
+                            },
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text("Tambah '$searchQuery' Sebagai Barang Baru", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                        }
+                    }
+                }
             }
         }
     }
@@ -404,6 +427,109 @@ fun SearchableItemAutocomplete(
                         }
                     }
 
+                    if (!isPenjualanMode) {
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Text(
+                            text = "Harga Beli / Modal Baru (Rp):",
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                        OutlinedTextField(
+                            value = priceInputString,
+                            onValueChange = { input ->
+                                val digitsOnly = input.filter { it.isDigit() }
+                                priceInputString = digitsOnly
+                            },
+                            label = { Text("Harga Modal (Rp)") },
+                            placeholder = { Text(if (item.hargaModal > 0) item.hargaModal.toInt().toString() else "0") },
+                            supportingText = {
+                                if (item.hargaModal > 0) {
+                                    Text("Harga master saat ini: ${Formatters.formatRupiah(item.hargaModal)}", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                }
+                            },
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                            singleLine = true,
+                            trailingIcon = {
+                                if (priceInputString.isNotEmpty()) {
+                                    IconButton(onClick = { priceInputString = "" }) {
+                                        Icon(Icons.Default.Close, contentDescription = "Clear")
+                                    }
+                                }
+                            },
+                            modifier = Modifier.fillMaxWidth().testTag("input_price_incoming_popup")
+                        )
+
+                        val parsedPrice = priceInputString.toDoubleOrNull() ?: 0.0
+                        val stokAda = item.totalStokCombined.coerceAtLeast(0)
+                        val inQty = maxOf(1, parsedInputQty)
+                        val totalGabungan = stokAda + inQty
+                        val selisih = parsedPrice - item.hargaModal
+                        val isPriceDiff = parsedPrice > 0.0 && item.hargaModal > 0.0 && parsedPrice != item.hargaModal
+                        val calculatedAvg = if (stokAda > 0 && item.hargaModal > 0.0 && parsedPrice > 0.0) {
+                            kotlin.math.round(((stokAda * item.hargaModal) + (inQty * parsedPrice)) / totalGabungan)
+                        } else if (parsedPrice > 0.0) {
+                            parsedPrice
+                        } else {
+                            item.hargaModal
+                        }
+
+                        if (isPriceDiff) {
+                            Spacer(modifier = Modifier.height(6.dp))
+                            Surface(
+                                shape = RoundedCornerShape(8.dp),
+                                color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.4f),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Column(modifier = Modifier.padding(10.dp)) {
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Text(
+                                            text = "⚖️ Penyesuaian Harga Otomatis",
+                                            fontSize = 11.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            color = MaterialTheme.colorScheme.primary
+                                        )
+                                        val tanda = if (selisih >= 0) "+" else ""
+                                        Text(
+                                            text = "Selisih: $tanda${Formatters.formatRupiah(selisih)}",
+                                            fontSize = 11.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            color = if (selisih >= 0) androidx.compose.ui.graphics.Color(0xFFC62828) else androidx.compose.ui.graphics.Color(0xFF2E7D32)
+                                        )
+                                    }
+                                    Spacer(modifier = Modifier.height(4.dp))
+                                    Text(
+                                        text = "Stok Ada: $stokAda unit @ ${Formatters.formatRupiah(item.hargaModal)}\nMasuk Baru: $inQty unit @ ${Formatters.formatRupiah(parsedPrice)}",
+                                        fontSize = 10.sp,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                    Spacer(modifier = Modifier.height(4.dp))
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Text(
+                                            text = "HPP Baru Otomatis ($totalGabungan unit):",
+                                            fontSize = 10.sp,
+                                            color = MaterialTheme.colorScheme.primary,
+                                            fontWeight = FontWeight.SemiBold
+                                        )
+                                        Text(
+                                            text = Formatters.formatRupiah(calculatedAvg),
+                                            fontSize = 12.sp,
+                                            fontWeight = FontWeight.ExtraBold,
+                                            color = MaterialTheme.colorScheme.primary
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+
                     if (isExceedingStock) {
                         Text(
                             text = "⚠️ Jumlah melebihi stok yang tersedia (Maksimal sisa: ${maxOf(0, maxAvailableStock)} unit)!",
@@ -425,7 +551,10 @@ fun SearchableItemAutocomplete(
                 Button(
                     onClick = {
                         if (parsedInputQty > 0 && !isExceedingStock) {
-                            if (onItemSelectedWithQty != null) {
+                            val parsedPrice = priceInputString.toDoubleOrNull()
+                            if (onItemSelectedWithQtyAndPrice != null) {
+                                onItemSelectedWithQtyAndPrice(item, parsedInputQty, parsedPrice)
+                            } else if (onItemSelectedWithQty != null) {
                                 onItemSelectedWithQty(item, parsedInputQty)
                             } else {
                                 repeat(parsedInputQty) { onItemSelected(item) }

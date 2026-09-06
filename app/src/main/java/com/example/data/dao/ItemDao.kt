@@ -53,6 +53,12 @@ interface ItemDao {
     @Query("UPDATE items SET stokTokoUtama = :stokUtama, stokTokoCabang = :stokCabang, stok = :totalStok, updatedAt = :updatedAt WHERE id = :id")
     suspend fun updateStoreStocks(id: Long, stokUtama: Int, stokCabang: Int, totalStok: Int, updatedAt: Long = System.currentTimeMillis())
 
+    @Query("UPDATE items SET stokTokoUtama = :stokUtama, stokTokoCabang = :stokCabang, stok = :totalStok, hargaModal = :hargaModal, updatedAt = :updatedAt WHERE id = :id")
+    suspend fun updateStoreStocksAndPrice(id: Long, stokUtama: Int, stokCabang: Int, totalStok: Int, hargaModal: Double, updatedAt: Long = System.currentTimeMillis())
+
+    @Query("UPDATE items SET hargaModal = :hargaModal, updatedAt = :updatedAt WHERE id = :id")
+    suspend fun updateItemPrice(id: Long, hargaModal: Double, updatedAt: Long = System.currentTimeMillis())
+
     @Delete
     suspend fun deleteItem(item: ItemEntity)
 

@@ -20,6 +20,9 @@ interface SupplierPayableDao {
     @Query("SELECT * FROM supplier_payments WHERE hutangId = :hutangId ORDER BY timestamp DESC")
     suspend fun getPaymentsByPayableList(hutangId: Long): List<SupplierPaymentEntity>
 
+    @Query("SELECT * FROM supplier_payments ORDER BY timestamp DESC")
+    suspend fun getAllSupplierPaymentsList(): List<SupplierPaymentEntity>
+
     @Query("SELECT * FROM supplier_payables WHERE status = 'Belum Lunas' ORDER BY timestamp DESC")
     fun getUnpaidPayables(): Flow<List<SupplierPayableEntity>>
 

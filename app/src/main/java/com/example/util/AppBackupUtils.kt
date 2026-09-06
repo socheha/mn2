@@ -28,6 +28,9 @@ import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
 import java.io.FileOutputStream
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 
 object AppBackupUtils {
 
@@ -172,6 +175,9 @@ object AppBackupUtils {
         val salesTxArr = JSONArray()
         val salesItemsArr = JSONArray()
         val salesTxs = db.salesDao().getAllTransactionsList()
+        val allSalesItems = db.salesDao().getAllSalesItemsList()
+        val salesItemsByTx = allSalesItems.groupBy { it.transactionId }
+
         for (tx in salesTxs) {
             val obj = JSONObject().apply {
                 put("id", tx.id)
@@ -185,7 +191,7 @@ object AppBackupUtils {
             }
             salesTxArr.put(obj)
 
-            val sItems = db.salesDao().getItemsForTransaction(tx.id)
+            val sItems = salesItemsByTx[tx.id] ?: emptyList()
             for (si in sItems) {
                 val siObj = JSONObject().apply {
                     put("id", si.id)
@@ -207,6 +213,9 @@ object AppBackupUtils {
         val incTxArr = JSONArray()
         val incItemsArr = JSONArray()
         val incTxs = db.incomingDao().getAllTransactionsList()
+        val allIncItems = db.incomingDao().getAllIncomingItemsList()
+        val incItemsByTx = allIncItems.groupBy { it.transactionId }
+
         for (tx in incTxs) {
             val obj = JSONObject().apply {
                 put("id", tx.id)
@@ -221,7 +230,7 @@ object AppBackupUtils {
             }
             incTxArr.put(obj)
 
-            val iiList = db.incomingDao().getItemsForTransaction(tx.id)
+            val iiList = incItemsByTx[tx.id] ?: emptyList()
             for (ii in iiList) {
                 val iiObj = JSONObject().apply {
                     put("id", ii.id)
@@ -242,6 +251,9 @@ object AppBackupUtils {
         val recArr = JSONArray()
         val recPayArr = JSONArray()
         val recs = db.customerReceivableDao().getAllReceivablesList()
+        val allCustPayments = db.customerReceivableDao().getAllCustomerPaymentsList()
+        val custPaymentsByRec = allCustPayments.groupBy { it.piutangId }
+
         for (r in recs) {
             val obj = JSONObject().apply {
                 put("id", r.id)
@@ -257,7 +269,7 @@ object AppBackupUtils {
             }
             recArr.put(obj)
 
-            val pList = db.customerReceivableDao().getPaymentsByReceivableList(r.id)
+            val pList = custPaymentsByRec[r.id] ?: emptyList()
             for (p in pList) {
                 val pObj = JSONObject().apply {
                     put("id", p.id)
@@ -278,6 +290,9 @@ object AppBackupUtils {
         val payArr = JSONArray()
         val payPayArr = JSONArray()
         val pays = db.supplierPayableDao().getAllPayablesList()
+        val allSuppPayments = db.supplierPayableDao().getAllSupplierPaymentsList()
+        val suppPaymentsByPay = allSuppPayments.groupBy { it.hutangId }
+
         for (p in pays) {
             val obj = JSONObject().apply {
                 put("id", p.id)
@@ -292,7 +307,7 @@ object AppBackupUtils {
             }
             payArr.put(obj)
 
-            val pList = db.supplierPayableDao().getPaymentsByPayableList(p.id)
+            val pList = suppPaymentsByPay[p.id] ?: emptyList()
             for (sp in pList) {
                 val pObj = JSONObject().apply {
                     put("id", sp.id)
@@ -386,7 +401,7 @@ object AppBackupUtils {
         }
         root.put("transactionHistoryLogs", logArr)
 
-        root.toString(2)
+        root.toString()
     }
 
     /**
@@ -738,79 +753,109 @@ object AppBackupUtils {
     }
 
     /**
-     * Save continuous snapshot to phone internal storage and SharedPreferences so data is never lost during updates
+     * Save continuous snapshot to phone internal storage, external public storage, and metadata so data is never lost during updates
      */
-    suspend fun saveContinuousSnapshot(context: Context, db: AppDatabase): Unit = withContext(Dispatchers.IO) {
-        try {
-            val json = exportDatabaseToJson(db)
-            if (json.length < 20) return@withContext
+     suspend fun saveContinuousSnapshot(
+         context: Context,
+         db: AppDatabase,
+         precomputedJson: String? = null
+     ): Unit = withContext(Dispatchers.IO) {
+         try {
+             val json = precomputedJson ?: exportDatabaseToJson(db)
+             if (json.length < 20) return@withContext
 
-            val file1 = File(context.filesDir, "pre_update_snapshot.json")
-            val file2 = File(context.filesDir, "auto_backup_latest.json")
-            FileOutputStream(file1).use { it.write(json.toByteArray(Charsets.UTF_8)) }
-            FileOutputStream(file2).use { it.write(json.toByteArray(Charsets.UTF_8)) }
+             val jsonBytes = json.toByteArray(Charsets.UTF_8)
 
-            // Also keep an emergency copy in auto_backups folder
-            val autoDir = File(context.filesDir, "auto_backups")
-            if (!autoDir.exists()) autoDir.mkdirs()
-            val file3 = File(autoDir, "snapshot_emergency_copy.json")
-            FileOutputStream(file3).use { it.write(json.toByteArray(Charsets.UTF_8)) }
+             // 1. App internal files (fast local access)
+             val file1 = File(context.filesDir, "pre_update_snapshot.json")
+             val file2 = File(context.filesDir, "auto_backup_latest.json")
+             FileOutputStream(file1).use { it.write(jsonBytes) }
+             FileOutputStream(file2).use { it.write(jsonBytes) }
 
-            // Secondary safety layer: Store in persistent SharedPreferences
-            val prefs = context.getSharedPreferences("smartstock_persistent_snapshot", Context.MODE_PRIVATE)
-            prefs.edit()
-                .putString("latest_json_snapshot", json)
-                .putLong("latest_saved_time", System.currentTimeMillis())
-                .apply()
-        } catch (e: Exception) {
-            e.printStackTrace()
-        }
-    }
+             // 2. Keep an emergency copy in auto_backups folder
+             val autoDir = File(context.filesDir, "auto_backups")
+             if (!autoDir.exists()) autoDir.mkdirs()
+             val file3 = File(autoDir, "snapshot_emergency_copy.json")
+             FileOutputStream(file3).use { it.write(jsonBytes) }
+
+             // 3. Keep public storage copy in Downloads/SmartStock_AutoBackup so it survives app uninstall / update
+             try {
+                 StorageLocationManager.writeToDownloadsFolder(
+                     context = context,
+                     fileName = "Snapshot_SmartStock_SafeUpdate.json",
+                     mimeType = "application/json",
+                     dataBytes = jsonBytes
+                 )
+             } catch (e: Exception) {
+                 // Non-fatal if media storage is restricted
+             }
+
+             // 4. Save metadata in persistent SharedPreferences (lightweight)
+             val prefs = context.getSharedPreferences("smartstock_persistent_snapshot", Context.MODE_PRIVATE)
+             prefs.edit()
+                 .putLong("latest_saved_time", System.currentTimeMillis())
+                 .putInt("snapshot_size_bytes", jsonBytes.size)
+                 .apply()
+         } catch (e: Exception) {
+             e.printStackTrace()
+         }
+     }
 
     /**
-     * Retrieve all available local snapshot and auto backup files
+     * Retrieve all available local snapshot and auto backup files across internal and external storage
      */
     fun getAllRecoveryFiles(context: Context): List<File> {
         val filesList = mutableListOf<File>()
-        val file1 = File(context.filesDir, "pre_update_snapshot.json")
-        if (file1.exists() && file1.length() > 20) filesList.add(file1)
 
-        val file2 = File(context.filesDir, "auto_backup_latest.json")
-        if (file2.exists() && file2.length() > 20 && !filesList.contains(file2)) filesList.add(file2)
-
-        val autoDir = File(context.filesDir, "auto_backups")
-        if (autoDir.exists()) {
-            autoDir.listFiles { _, name -> name.endsWith(".json") }?.let {
-                for (f in it) {
-                    if (!filesList.contains(f) && f.length() > 20) {
+        fun addFileIfValid(f: File) {
+            try {
+                if (f.exists() && f.isFile && f.length() > 20) {
+                    if (!filesList.any { it.absolutePath == f.absolutePath }) {
                         filesList.add(f)
                     }
                 }
+            } catch (e: Exception) {
+                // Ignore file system check error
             }
         }
 
-        // Also check Public Download folder for auto backup and manual exports
-        try {
-            val downloadDir = File(android.os.Environment.getExternalStoragePublicDirectory(android.os.Environment.DIRECTORY_DOWNLOADS), "SmartStock_AutoBackup")
-            if (downloadDir.exists()) {
-                downloadDir.listFiles { _, name -> name.endsWith(".json") }?.let {
-                    for (f in it) {
-                        if (!filesList.any { existing -> existing.absolutePath == f.absolutePath } && f.length() > 20) {
-                            filesList.add(f)
-                        }
-                    }
-                }
-            }
+        // 1. Files in internal filesDir
+        addFileIfValid(File(context.filesDir, "pre_update_snapshot.json"))
+        addFileIfValid(File(context.filesDir, "auto_backup_latest.json"))
 
-            val docDir = File(android.os.Environment.getExternalStoragePublicDirectory(android.os.Environment.DIRECTORY_DOCUMENTS), "SmartStock_Backups")
-            if (docDir.exists()) {
-                docDir.listFiles { _, name -> name.endsWith(".json") }?.let {
-                    for (f in it) {
-                        if (!filesList.any { existing -> existing.absolutePath == f.absolutePath } && f.length() > 20) {
-                            filesList.add(f)
-                        }
-                    }
-                }
+        // 2. Files in internal auto_backups dir
+        val autoDir = File(context.filesDir, "auto_backups")
+        if (autoDir.exists() && autoDir.isDirectory) {
+            autoDir.listFiles { _, name -> name.endsWith(".json") }?.forEach { addFileIfValid(it) }
+        }
+
+        // 3. Public Downloads folder
+        try {
+            val downloadPublicDir = android.os.Environment.getExternalStoragePublicDirectory(android.os.Environment.DIRECTORY_DOWNLOADS)
+            val subDownloadDir = File(downloadPublicDir, "SmartStock_AutoBackup")
+            if (subDownloadDir.exists() && subDownloadDir.isDirectory) {
+                subDownloadDir.listFiles { _, name -> name.endsWith(".json") }?.forEach { addFileIfValid(it) }
+            }
+            if (downloadPublicDir.exists() && downloadPublicDir.isDirectory) {
+                downloadPublicDir.listFiles { _, name ->
+                    name.endsWith(".json") && (name.contains("SmartStock", ignoreCase = true) || name.contains("AutoBackup", ignoreCase = true) || name.contains("Snapshot", ignoreCase = true))
+                }?.forEach { addFileIfValid(it) }
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+
+        // 4. Public Documents folder
+        try {
+            val docPublicDir = android.os.Environment.getExternalStoragePublicDirectory(android.os.Environment.DIRECTORY_DOCUMENTS)
+            val subDocDir = File(docPublicDir, "SmartStock_Backups")
+            if (subDocDir.exists() && subDocDir.isDirectory) {
+                subDocDir.listFiles { _, name -> name.endsWith(".json") }?.forEach { addFileIfValid(it) }
+            }
+            if (docPublicDir.exists() && docPublicDir.isDirectory) {
+                docPublicDir.listFiles { _, name ->
+                    name.endsWith(".json") && (name.contains("SmartStock", ignoreCase = true) || name.contains("Backup", ignoreCase = true))
+                }?.forEach { addFileIfValid(it) }
             }
         } catch (e: Exception) {
             e.printStackTrace()
@@ -820,17 +865,33 @@ object AppBackupUtils {
     }
 
     /**
-     * Automatically restore the most recent auto-recovery snapshot from files or SharedPreferences
+     * Automatically restore the most recent valid auto-recovery snapshot from files or backup
      */
     suspend fun restoreFromLatestAutoSnapshot(context: Context, db: AppDatabase): Result<String> = withContext(Dispatchers.IO) {
         val recoveryFiles = getAllRecoveryFiles(context)
+        if (recoveryFiles.isEmpty()) {
+            return@withContext Result.failure(Exception("Tidak ditemukan file snapshot atau cadangan otomatis di penyimpanan internal maupun folder Download."))
+        }
+
+        // Prioritize candidate file that has actual records (items or transactions), newest first
+        var chosenFile: File? = null
+        var chosenJson: String? = null
+
         for (file in recoveryFiles) {
             try {
                 val jsonString = file.readText(Charsets.UTF_8)
                 if (jsonString.isNotBlank() && jsonString.contains("SmartStock")) {
-                    val res = restoreDatabaseFromJson(db, jsonString)
-                    if (res.isSuccess) {
-                        return@withContext Result.success("Berhasil memulihkan data dari cadangan snapshot: ${file.name}")
+                    // Check if file contains actual items or transaction data
+                    val hasItems = jsonString.contains("\"items\":[{\"") || 
+                                   jsonString.contains("\"salesTransactions\":[{\"") || 
+                                   jsonString.contains("\"incomingTransactions\":[{\"")
+                    if (hasItems) {
+                        chosenFile = file
+                        chosenJson = jsonString
+                        break
+                    } else if (chosenFile == null) {
+                        chosenFile = file
+                        chosenJson = jsonString
                     }
                 }
             } catch (e: Exception) {
@@ -838,21 +899,18 @@ object AppBackupUtils {
             }
         }
 
-        // Fallback to SharedPreferences emergency snapshot if files are not accessible
-        try {
-            val prefs = context.getSharedPreferences("smartstock_persistent_snapshot", Context.MODE_PRIVATE)
-            val jsonString = prefs.getString("latest_json_snapshot", null)
-            if (!jsonString.isNullOrBlank() && jsonString.contains("SmartStock")) {
-                val res = restoreDatabaseFromJson(db, jsonString)
-                if (res.isSuccess) {
-                    return@withContext Result.success("Berhasil memulihkan data dari cadangan memori darurat SharedPreferences.")
-                }
+        if (chosenFile != null && chosenJson != null) {
+            val res = restoreDatabaseFromJson(db, chosenJson)
+            if (res.isSuccess) {
+                val sdf = SimpleDateFormat("dd MMM yyyy HH:mm", Locale("id", "ID"))
+                val dateStr = sdf.format(Date(chosenFile.lastModified()))
+                return@withContext Result.success("Berhasil memulihkan snapshot: ${chosenFile.name}\n(Tanggal: $dateStr)")
+            } else {
+                return@withContext Result.failure(Exception(res.exceptionOrNull()?.message ?: "Gagal memulihkan snapshot."))
             }
-        } catch (e: Exception) {
-            e.printStackTrace()
         }
 
-        Result.failure(Exception("Tidak ditemukan snapshot cadangan otomatis."))
+        Result.failure(Exception("Tidak ditemukan snapshot cadangan otomatis yang valid untuk dipulihkan."))
     }
 
     /**

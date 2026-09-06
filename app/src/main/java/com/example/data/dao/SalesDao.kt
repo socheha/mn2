@@ -60,6 +60,9 @@ interface SalesDao {
     @Query("SELECT * FROM sales_items WHERE transactionId = :transactionId")
     suspend fun getItemsForTransaction(transactionId: Long): List<SalesItemEntity>
 
+    @Query("SELECT * FROM sales_items ORDER BY id ASC")
+    suspend fun getAllSalesItemsList(): List<SalesItemEntity>
+
     @Query("SELECT * FROM sales_transactions WHERE id = :id")
     suspend fun getTransactionById(id: Long): SalesTransactionEntity?
 

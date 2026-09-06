@@ -20,6 +20,9 @@ interface CustomerReceivableDao {
     @Query("SELECT * FROM customer_payments WHERE piutangId = :piutangId ORDER BY timestamp DESC")
     suspend fun getPaymentsByReceivableList(piutangId: Long): List<CustomerPaymentEntity>
 
+    @Query("SELECT * FROM customer_payments ORDER BY timestamp DESC")
+    suspend fun getAllCustomerPaymentsList(): List<CustomerPaymentEntity>
+
     @Query("SELECT * FROM customer_receivables WHERE status = 'Belum Lunas' ORDER BY timestamp DESC")
     fun getUnpaidReceivables(): Flow<List<CustomerReceivableEntity>>
 
