@@ -649,8 +649,10 @@ fun MenuRekapScreen(
                                                 modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
                                             )
                                         }
+                                        val txTime = Formatters.formatTimeOnly(tx.timestamp)
+                                        val txDateTime = if (txTime.isNotBlank() && txTime != "00:00") "${Formatters.formatDateToIndonesian(tx.tanggal)} $txTime" else Formatters.formatDateToIndonesian(tx.tanggal)
                                         Text(
-                                            text = Formatters.formatDateToIndonesian(tx.tanggal),
+                                            text = txDateTime,
                                             fontWeight = FontWeight.Bold,
                                             fontSize = 13.sp
                                         )
@@ -975,8 +977,10 @@ fun MenuRekapScreen(
                                     horizontalArrangement = Arrangement.SpaceBetween,
                                     verticalAlignment = Alignment.CenterVertically
                                 ) {
+                                    val mTime = Formatters.formatTimeOnly(mutation.timestamp)
+                                    val mDateTime = if (mTime.isNotBlank() && mTime != "00:00") "${Formatters.formatDateToIndonesian(mutation.tanggal)} $mTime" else Formatters.formatDateToIndonesian(mutation.tanggal)
                                     Text(
-                                        text = mutation.tanggal,
+                                        text = mDateTime,
                                         fontSize = 11.sp,
                                         color = MaterialTheme.colorScheme.outline
                                     )
@@ -1047,8 +1051,10 @@ fun MenuRekapScreen(
                                         )
                                     }
                                     Spacer(modifier = Modifier.height(4.dp))
+                                    val incTime = Formatters.formatTimeOnly(inc.timestamp)
+                                    val incDateTime = if (incTime.isNotBlank() && incTime != "00:00") "${Formatters.formatDateToIndonesian(inc.tanggal)} $incTime" else Formatters.formatDateToIndonesian(inc.tanggal)
                                     Text(
-                                        text = "${inc.tanggal} • Status Bayar: ${inc.statusPembayaran}",
+                                        text = "$incDateTime • Status Bayar: ${inc.statusPembayaran}",
                                         fontSize = 12.sp,
                                         color = MaterialTheme.colorScheme.onSurfaceVariant
                                     )

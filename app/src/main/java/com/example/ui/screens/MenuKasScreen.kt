@@ -684,6 +684,8 @@ fun MenuKasScreen(
                                             verticalAlignment = Alignment.CenterVertically,
                                             modifier = Modifier
                                                 .weight(1f, fill = false)
+                                                .background(Color(0xFF1E293B), RoundedCornerShape(6.dp))
+                                                .padding(horizontal = 6.dp, vertical = 3.dp)
                                                 .clickable {
                                                     targetAccountForEdit = acc.accountType
                                                     showEditSaldoDialog = true
@@ -692,20 +694,20 @@ fun MenuKasScreen(
                                             Icon(
                                                 imageVector = if (com.example.data.entity.CashAccountDefaults.getAccountCategory(acc.accountType) == "E-WALLET") Icons.Default.Payments else Icons.Default.AccountBalance,
                                                 contentDescription = null,
-                                                tint = Color(0xFFE53935),
-                                                modifier = Modifier.size(16.dp)
+                                                tint = Color(0xFFFFD600),
+                                                modifier = Modifier.size(15.dp)
                                             )
                                             Spacer(modifier = Modifier.width(4.dp))
                                             Text(
                                                 text = acc.accountName,
                                                 fontWeight = FontWeight.Bold,
                                                 fontSize = 12.sp,
-                                                color = Color(0xFFE53935), // Merah cerah
+                                                color = Color(0xFFFFD600), // Kuning cerah
                                                 maxLines = 1,
                                                 overflow = TextOverflow.Ellipsis
                                             )
                                             Spacer(modifier = Modifier.width(4.dp))
-                                            Icon(imageVector = Icons.Default.Edit, contentDescription = "Edit", tint = Color(0xFFE53935), modifier = Modifier.size(12.dp))
+                                            Icon(imageVector = Icons.Default.Edit, contentDescription = "Edit", tint = Color(0xFFFFD600), modifier = Modifier.size(11.dp))
                                         }
 
                                         Spacer(modifier = Modifier.width(6.dp))
@@ -1032,14 +1034,14 @@ fun MenuKasScreen(
                                     val accountName = com.example.data.entity.CashAccountDefaults.getAccountName(mutation.accountType)
                                     Surface(
                                         shape = RoundedCornerShape(4.dp),
-                                        color = if (mutation.accountType == "TUNAI") Color(0xFFE8F5E9) else Color(0xFFE3F2FD),
+                                        color = if (mutation.accountType == "TUNAI") Color(0xFFE8F5E9) else Color(0xFF1E293B),
                                         modifier = Modifier.padding(end = 6.dp)
                                     ) {
                                         Text(
                                             text = accountName,
                                             style = MaterialTheme.typography.labelSmall,
                                             fontWeight = FontWeight.Bold,
-                                            color = if (mutation.accountType == "TUNAI") Color(0xFF2E7D32) else Color(0xFF1565C0),
+                                            color = if (mutation.accountType == "TUNAI") Color(0xFF2E7D32) else Color(0xFFFFD600),
                                             modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
                                         )
                                     }
@@ -1091,8 +1093,10 @@ fun MenuKasScreen(
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
                                 Column(modifier = Modifier.weight(1f)) {
+                                    val mTime = Formatters.formatTimeOnly(mutation.timestamp)
+                                    val mDateTime = if (mTime.isNotBlank() && mTime != "00:00") "${Formatters.formatDateToIndonesian(mutation.tanggal)} $mTime" else Formatters.formatDateToIndonesian(mutation.tanggal)
                                     Text(
-                                        text = mutation.tanggal,
+                                        text = mDateTime,
                                         fontSize = 11.sp,
                                         color = MaterialTheme.colorScheme.outline
                                     )

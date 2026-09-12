@@ -30,10 +30,10 @@ interface SalesDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     fun insertItemDirect(item: SalesItemEntity)
 
-    @Query("SELECT * FROM sales_transactions ORDER BY timestamp DESC")
+    @Query("SELECT * FROM sales_transactions ORDER BY tanggal DESC, timestamp DESC, id DESC")
     fun getAllTransactions(): Flow<List<SalesTransactionEntity>>
 
-    @Query("SELECT * FROM sales_transactions ORDER BY timestamp DESC")
+    @Query("SELECT * FROM sales_transactions ORDER BY tanggal DESC, timestamp DESC, id DESC")
     suspend fun getAllTransactionsList(): List<SalesTransactionEntity>
 
     @Query("SELECT COALESCE(SUM(totalUangPenjualan), 0.0) FROM sales_transactions WHERE tanggal = :todayDate")
@@ -51,7 +51,7 @@ interface SalesDao {
     @Query("SELECT COALESCE(SUM(keuntungan), 0.0) FROM sales_transactions WHERE tanggal >= :startDate AND tanggal <= :endDate")
     fun getProfitBetweenDates(startDate: String, endDate: String): Flow<Double>
 
-    @Query("SELECT * FROM sales_transactions WHERE tanggal >= :startDate AND tanggal <= :endDate ORDER BY timestamp DESC")
+    @Query("SELECT * FROM sales_transactions WHERE tanggal >= :startDate AND tanggal <= :endDate ORDER BY tanggal DESC, timestamp DESC, id DESC")
     fun getTransactionsBetweenDates(startDate: String, endDate: String): Flow<List<SalesTransactionEntity>>
 
     @Query("SELECT itemId, kodeBarang, namaBarang, SUM(jumlahTerjual) as totalJumlahTerjual, SUM(totalHarga) as totalNilai FROM sales_items WHERE transactionId IN (SELECT id FROM sales_transactions WHERE tanggal >= :startDate AND tanggal <= :endDate) GROUP BY itemId, kodeBarang, namaBarang ORDER BY totalJumlahTerjual DESC")

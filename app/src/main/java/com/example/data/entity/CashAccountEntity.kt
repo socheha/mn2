@@ -34,12 +34,18 @@ object CashAccountDefaults {
     )
 
     fun getAccountName(type: String): String {
-        return ALL_DEFAULT_ACCOUNTS.find { it.type.equals(type, ignoreCase = true) }?.name
-            ?: if (type == "BANK") "Kas Bank / Transfer" else type
+        val found = ALL_DEFAULT_ACCOUNTS.find { it.type.equals(type, ignoreCase = true) }
+        if (found != null) return found.name
+        if (type.equals("BANK", ignoreCase = true)) return "Kas Rekening Bank"
+        if (type.equals("TUNAI", ignoreCase = true)) return "Kas Tunai Toko"
+        return type.replace("_", " ").split(" ").joinToString(" ") { word ->
+            word.lowercase().replaceFirstChar { it.titlecase() }
+        }
     }
 
     fun getAccountCategory(type: String): String {
-        return ALL_DEFAULT_ACCOUNTS.find { it.type.equals(type, ignoreCase = true) }?.category
-            ?: if (type == "TUNAI") "TUNAI" else "BANK"
+        val found = ALL_DEFAULT_ACCOUNTS.find { it.type.equals(type, ignoreCase = true) }
+        if (found != null) return found.category
+        return if (type.contains("TUNAI", ignoreCase = true) || type.contains("KAS", ignoreCase = true)) "TUNAI" else "BANK"
     }
 }

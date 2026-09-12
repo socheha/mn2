@@ -11,19 +11,19 @@ import kotlinx.coroutines.flow.Flow
 
 @Dao
 interface CustomerReceivableDao {
-    @Query("SELECT * FROM customer_receivables ORDER BY timestamp DESC")
+    @Query("SELECT * FROM customer_receivables ORDER BY tanggal DESC, timestamp DESC, id DESC")
     fun getAllReceivables(): Flow<List<CustomerReceivableEntity>>
 
-    @Query("SELECT * FROM customer_receivables ORDER BY timestamp DESC")
+    @Query("SELECT * FROM customer_receivables ORDER BY tanggal DESC, timestamp DESC, id DESC")
     suspend fun getAllReceivablesList(): List<CustomerReceivableEntity>
 
-    @Query("SELECT * FROM customer_payments WHERE piutangId = :piutangId ORDER BY timestamp DESC")
+    @Query("SELECT * FROM customer_payments WHERE piutangId = :piutangId ORDER BY tanggal DESC, timestamp DESC, id DESC")
     suspend fun getPaymentsByReceivableList(piutangId: Long): List<CustomerPaymentEntity>
 
-    @Query("SELECT * FROM customer_payments ORDER BY timestamp DESC")
+    @Query("SELECT * FROM customer_payments ORDER BY tanggal DESC, timestamp DESC, id DESC")
     suspend fun getAllCustomerPaymentsList(): List<CustomerPaymentEntity>
 
-    @Query("SELECT * FROM customer_receivables WHERE status = 'Belum Lunas' ORDER BY timestamp DESC")
+    @Query("SELECT * FROM customer_receivables WHERE status = 'Belum Lunas' ORDER BY tanggal DESC, timestamp DESC, id DESC")
     fun getUnpaidReceivables(): Flow<List<CustomerReceivableEntity>>
 
     @Query("SELECT COALESCE(SUM(nominalSisa), 0.0) FROM customer_receivables WHERE status = 'Belum Lunas'")
@@ -47,7 +47,7 @@ interface CustomerReceivableDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     fun insertPaymentDirect(payment: CustomerPaymentEntity)
 
-    @Query("SELECT * FROM customer_payments WHERE piutangId = :piutangId ORDER BY timestamp DESC")
+    @Query("SELECT * FROM customer_payments WHERE piutangId = :piutangId ORDER BY tanggal DESC, timestamp DESC, id DESC")
     fun getPaymentsByReceivable(piutangId: Long): Flow<List<CustomerPaymentEntity>>
 
     @Query("SELECT * FROM customer_payments WHERE id = :paymentId")

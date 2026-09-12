@@ -37,13 +37,13 @@ interface CashDao {
     @Query("DELETE FROM cash_accounts WHERE accountType != 'TUNAI'")
     suspend fun deleteAllBankAccounts()
 
-    @Query("SELECT * FROM cash_mutations ORDER BY timestamp DESC")
+    @Query("SELECT * FROM cash_mutations ORDER BY tanggal DESC, timestamp DESC, id DESC")
     fun getAllMutations(): Flow<List<CashMutationEntity>>
 
-    @Query("SELECT * FROM cash_mutations ORDER BY timestamp DESC")
+    @Query("SELECT * FROM cash_mutations ORDER BY tanggal DESC, timestamp DESC, id DESC")
     suspend fun getAllMutationsList(): List<CashMutationEntity>
 
-    @Query("SELECT * FROM cash_mutations WHERE accountType = :accountType ORDER BY timestamp DESC")
+    @Query("SELECT * FROM cash_mutations WHERE accountType = :accountType ORDER BY tanggal DESC, timestamp DESC, id DESC")
     fun getMutationsByAccount(accountType: String): Flow<List<CashMutationEntity>>
 
     @Query("DELETE FROM cash_accounts")

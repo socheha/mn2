@@ -92,7 +92,12 @@ fun MenuBarangMasukScreen(
     var incomingTransactionToEdit by remember { mutableStateOf<com.example.data.entity.IncomingTransactionEntity?>(null) }
 
     val bankAccounts = remember(allCashAccounts) {
-        allCashAccounts.filter { it.accountType != "TUNAI" }
+        allCashAccounts.filter { com.example.data.entity.CashAccountDefaults.getAccountCategory(it.accountType) != "TUNAI" }
+    }
+
+    val cashAccounts = remember(allCashAccounts) {
+        val list = allCashAccounts.filter { com.example.data.entity.CashAccountDefaults.getAccountCategory(it.accountType) == "TUNAI" }
+        if (list.isNotEmpty()) list else listOf(com.example.data.entity.CashAccountEntity(accountType = "TUNAI", accountName = "Kas Tunai Toko", saldo = 0.0))
     }
 
     var tanggal by remember { mutableStateOf(Formatters.getCurrentDateFormatted()) }
@@ -101,6 +106,7 @@ fun MenuBarangMasukScreen(
     var catatan by remember { mutableStateOf("") }
     var statusPembayaran by remember { mutableStateOf("Tunai") } // "Tunai", "Transfer", "Tunai & Transfer", "Hutang"
     var selectedBankCode by remember { mutableStateOf("BANK") }
+    var selectedCashCode by remember { mutableStateOf("TUNAI") }
     var nominalTunaiSplitInput by remember { mutableStateOf("") }
     var nominalTransferSplitInput by remember { mutableStateOf("") }
     var calcTargetField by remember { mutableStateOf<String?>(null) } // "split_tunai", "split_transfer", or cart item ID string
@@ -113,6 +119,9 @@ fun MenuBarangMasukScreen(
             selectedBankCode = bankAccounts.first().accountType
         } else if (allCashAccounts.isNotEmpty() && allCashAccounts.none { it.accountType == selectedBankCode }) {
             selectedBankCode = allCashAccounts.first().accountType
+        }
+        if (cashAccounts.isNotEmpty() && (selectedCashCode == "TUNAI" || cashAccounts.none { it.accountType == selectedCashCode })) {
+            selectedCashCode = cashAccounts.first().accountType
         }
     }
 
@@ -686,12 +695,39 @@ fun MenuBarangMasukScreen(
                         }
 
                         if (statusPembayaran == "Tunai") {
-                            Text(
-                                text = "* Mengurangi Kas Tunai sebesar ${Formatters.formatRupiah(totalNilai)}",
-                                fontSize = 11.sp,
-                                color = Color(0xFF2E7D32),
-                                modifier = Modifier.padding(top = 4.dp)
-                            )
+                            Column(modifier = Modifier.padding(top = 8.dp)) {
+                                Text(
+                                    text = "Pilih Akun Kas Tunai Sumber:",
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.SemiBold
+                                )
+                                Spacer(modifier = Modifier.height(4.dp))
+                                androidx.compose.foundation.lazy.LazyRow(
+                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                ) {
+                                    items(cashAccounts, key = { it.accountType }) { cash ->
+                                        FilterChip(
+                                            selected = selectedCashCode == cash.accountType,
+                                            onClick = { selectedCashCode = cash.accountType },
+                                            label = { Text("${cash.accountName} (${Formatters.formatRupiah(cash.saldo)})") },
+                                            leadingIcon = if (selectedCashCode == cash.accountType) {
+                                                { Icon(imageVector = Icons.Default.Check, contentDescription = null, modifier = Modifier.size(16.dp)) }
+                                            } else null,
+                                            colors = FilterChipDefaults.filterChipColors(
+                                                selectedContainerColor = Color(0xFFE8F5E9),
+                                                selectedLabelColor = Color(0xFF2E7D32)
+                                            )
+                                        )
+                                    }
+                                }
+                                val selectedCashName = cashAccounts.find { it.accountType == selectedCashCode }?.accountName ?: "Kas Tunai"
+                                Text(
+                                    text = "* Mengurangi saldo $selectedCashName sebesar ${Formatters.formatRupiah(totalNilai)}",
+                                    fontSize = 11.sp,
+                                    color = Color(0xFF2E7D32),
+                                    modifier = Modifier.padding(top = 4.dp)
+                                )
+                            }
                         } else if (statusPembayaran == "Transfer") {
                             Column(modifier = Modifier.padding(top = 8.dp)) {
                                 Text(
@@ -755,7 +791,31 @@ fun MenuBarangMasukScreen(
                                 )
 
                                 Text(
-                                    text = "1. Pilih Bank / E-Wallet Penerima Transfer:",
+                                    text = "1. Pilih Akun Kas Tunai Sumber:",
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.SemiBold
+                                )
+                                androidx.compose.foundation.lazy.LazyRow(
+                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                ) {
+                                    items(cashAccounts, key = { it.accountType }) { cash ->
+                                        FilterChip(
+                                            selected = selectedCashCode == cash.accountType,
+                                            onClick = { selectedCashCode = cash.accountType },
+                                            label = { Text("${cash.accountName} (${Formatters.formatRupiah(cash.saldo)})") },
+                                            leadingIcon = if (selectedCashCode == cash.accountType) {
+                                                { Icon(imageVector = Icons.Default.Check, contentDescription = null, modifier = Modifier.size(16.dp)) }
+                                            } else null,
+                                            colors = FilterChipDefaults.filterChipColors(
+                                                selectedContainerColor = Color(0xFFE8F5E9),
+                                                selectedLabelColor = Color(0xFF2E7D32)
+                                            )
+                                        )
+                                    }
+                                }
+
+                                Text(
+                                    text = "2. Pilih Bank / E-Wallet Pembayaran:",
                                     fontSize = 11.sp,
                                     fontWeight = FontWeight.SemiBold
                                 )
@@ -814,6 +874,7 @@ fun MenuBarangMasukScreen(
                                 val tSplit = nominalTunaiSplitInput.toDoubleOrNull() ?: 0.0
                                 val trSplit = nominalTransferSplitInput.toDoubleOrNull() ?: 0.0
                                 val sumSplit = tSplit + trSplit
+                                val selCashName = cashAccounts.find { it.accountType == selectedCashCode }?.accountName ?: "Kas Tunai"
                                 val selAccName = allCashAccounts.find { it.accountType == selectedBankCode }?.accountName ?: selectedBankCode
 
                                 Surface(
@@ -823,7 +884,7 @@ fun MenuBarangMasukScreen(
                                 ) {
                                     Column(modifier = Modifier.padding(10.dp)) {
                                         Text(
-                                            text = "Potong Kas Tunai: ${Formatters.formatRupiah(tSplit)} | Potong $selAccName: ${Formatters.formatRupiah(trSplit)}",
+                                            text = "Potong $selCashName: ${Formatters.formatRupiah(tSplit)} | Potong $selAccName: ${Formatters.formatRupiah(trSplit)}",
                                             fontSize = 11.sp,
                                             fontWeight = FontWeight.SemiBold,
                                             color = if (sumSplit == totalNilai) Color(0xFF2E7D32) else Color(0xFFE65100)
@@ -865,9 +926,10 @@ fun MenuBarangMasukScreen(
                                         fakturNumber = nomorFaktur,
                                         catatan = catatan,
                                         statusPembayaran = statusPembayaran,
-                                        targetAccountCode = if (statusPembayaran == "Transfer" || statusPembayaran == "Tunai & Transfer") selectedBankCode else "TUNAI",
+                                        targetAccountCode = if (statusPembayaran == "Transfer" || statusPembayaran == "Tunai & Transfer") selectedBankCode else selectedCashCode,
                                         nominalTunaiSplit = if (statusPembayaran == "Tunai & Transfer") tunaiSplit else 0.0,
                                         nominalTransferSplit = if (statusPembayaran == "Tunai & Transfer") transferSplit else 0.0,
+                                        targetTunaiAccountCode = selectedCashCode,
                                         onSuccess = {
                                             namaSupplier = ""
                                             nomorFaktur = ""
@@ -923,7 +985,9 @@ fun MenuBarangMasukScreen(
                             )
                         } else {
                             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                                allIncomingTransactions.take(10).forEach { tx ->
+                                allIncomingTransactions.forEach { tx ->
+                                    val timeStr = Formatters.formatTimeOnly(tx.timestamp)
+                                    val dateTimeStr = if (timeStr.isNotBlank() && timeStr != "00:00") "${Formatters.formatDateToIndonesian(tx.tanggal)} $timeStr" else Formatters.formatDateToIndonesian(tx.tanggal)
                                     Card(
                                         modifier = Modifier.fillMaxWidth(),
                                         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)),
@@ -944,7 +1008,7 @@ fun MenuBarangMasukScreen(
                                                     color = Color(0xFF1565C0)
                                                 )
                                                 Text(
-                                                    text = "Tgl: ${Formatters.formatDateToIndonesian(tx.tanggal)} ${if (tx.nomorFaktur.isNotBlank()) "| No. Faktur: ${tx.nomorFaktur}" else ""} | ${tx.statusPembayaran}",
+                                                    text = "Tgl: $dateTimeStr ${if (tx.nomorFaktur.isNotBlank()) "| No. Faktur: ${tx.nomorFaktur}" else ""} | ${tx.statusPembayaran}",
                                                     fontSize = 11.sp,
                                                     color = MaterialTheme.colorScheme.onSurfaceVariant
                                                 )
@@ -993,7 +1057,15 @@ fun MenuBarangMasukScreen(
         var fakturText by remember(tx) { mutableStateOf(tx.nomorFaktur) }
         var totalText by remember(tx) { mutableStateOf(tx.totalNilai.toLong().toString()) }
         var statusText by remember(tx) { mutableStateOf(tx.statusPembayaran) }
-        var selectedAccountCode by remember(tx) { mutableStateOf("TUNAI") }
+        var selectedAccountCode by remember(tx) { 
+            mutableStateOf(
+                if (tx.statusPembayaran.contains("Transfer", ignoreCase = true)) {
+                    bankAccounts.firstOrNull()?.accountType ?: "BANK"
+                } else {
+                    cashAccounts.firstOrNull()?.accountType ?: "TUNAI"
+                }
+            ) 
+        }
         var catatanText by remember(tx) { mutableStateOf(tx.catatan) }
         var tanggalText by remember(tx) { mutableStateOf(tx.tanggal) }
 
@@ -1380,13 +1452,38 @@ fun MenuBarangMasukScreen(
                         listOf("Tunai", "Transfer", "Hutang").forEach { s ->
                             FilterChip(
                                 selected = statusText.startsWith(s),
-                                onClick = { statusText = s },
+                                onClick = { 
+                                    statusText = s 
+                                    if (s == "Tunai") {
+                                        selectedAccountCode = cashAccounts.firstOrNull()?.accountType ?: "TUNAI"
+                                    } else if (s == "Transfer") {
+                                        selectedAccountCode = bankAccounts.firstOrNull()?.accountType ?: "BANK"
+                                    }
+                                },
                                 label = { Text(s, fontSize = 11.sp) }
                             )
                         }
                     }
 
-                    if (statusText.startsWith("Transfer")) {
+                    if (statusText.startsWith("Tunai")) {
+                        Text("Pilih Kas Tunai Sumber:", fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                        Row(
+                            modifier = Modifier.horizontalScroll(rememberScrollState()),
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            cashAccounts.forEach { acc ->
+                                FilterChip(
+                                    selected = selectedAccountCode == acc.accountType,
+                                    onClick = { selectedAccountCode = acc.accountType },
+                                    label = { Text("${acc.accountName} (${Formatters.formatRupiah(acc.saldo)})", fontSize = 11.sp) },
+                                    colors = FilterChipDefaults.filterChipColors(
+                                        selectedContainerColor = Color(0xFFE8F5E9),
+                                        selectedLabelColor = Color(0xFF2E7D32)
+                                    )
+                                )
+                            }
+                        }
+                    } else if (statusText.startsWith("Transfer")) {
                         Text("Pilih Sumber Bank / E-Wallet:", fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
                         Row(
                             modifier = Modifier.horizontalScroll(rememberScrollState()),
@@ -1396,7 +1493,11 @@ fun MenuBarangMasukScreen(
                                 FilterChip(
                                     selected = selectedAccountCode == acc.accountType,
                                     onClick = { selectedAccountCode = acc.accountType },
-                                    label = { Text(acc.accountName.ifBlank { com.example.data.entity.CashAccountDefaults.getAccountName(acc.accountType) }, fontSize = 11.sp) }
+                                    label = { Text("${acc.accountName.ifBlank { com.example.data.entity.CashAccountDefaults.getAccountName(acc.accountType) }} (${Formatters.formatRupiah(acc.saldo)})", fontSize = 11.sp) },
+                                    colors = FilterChipDefaults.filterChipColors(
+                                        selectedContainerColor = Color(0xFFE3F2FD),
+                                        selectedLabelColor = Color(0xFF1565C0)
+                                    )
                                 )
                             }
                         }

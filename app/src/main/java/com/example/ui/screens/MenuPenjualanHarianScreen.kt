@@ -24,6 +24,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Calculate
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.CreditCard
@@ -110,8 +111,15 @@ fun MenuPenjualanHarianScreen(
     var salesTransactionToEdit by remember { mutableStateOf<com.example.data.entity.SalesTransactionEntity?>(null) }
 
     val registeredTransferAccounts = remember(allCashAccounts) {
-        val nonCash = allCashAccounts.filter { it.accountType != "TUNAI" }.map { com.example.data.entity.AccountTypeInfo(it.accountType, it.accountName, "BANK") }
+        val nonCash = allCashAccounts.filter { com.example.data.entity.CashAccountDefaults.getAccountCategory(it.accountType) != "TUNAI" }
+            .map { com.example.data.entity.AccountTypeInfo(it.accountType, "${it.accountName} (${Formatters.formatRupiah(it.saldo)})", "BANK") }
         if (nonCash.isNotEmpty()) nonCash else com.example.data.entity.CashAccountDefaults.ALL_DEFAULT_ACCOUNTS.filter { it.category != "TUNAI" }
+    }
+
+    val registeredCashAccounts = remember(allCashAccounts) {
+        val cashList = allCashAccounts.filter { com.example.data.entity.CashAccountDefaults.getAccountCategory(it.accountType) == "TUNAI" }
+            .map { com.example.data.entity.AccountTypeInfo(it.accountType, "${it.accountName} (${Formatters.formatRupiah(it.saldo)})", "TUNAI") }
+        if (cashList.isNotEmpty()) cashList else listOf(com.example.data.entity.AccountTypeInfo("TUNAI", "Kas Tunai", "TUNAI"))
     }
 
     var isNotaTotalMode by remember { mutableStateOf(true) } // true = Mode Nota Total, false = Mode Penjualan Rinci (Per Item / Toko)
@@ -125,6 +133,8 @@ fun MenuPenjualanHarianScreen(
     var nomorHpPelanggan by remember { mutableStateOf("") }
     var selectedMetodePembayaran by remember { mutableStateOf("Tunai") } // "Tunai", "Transfer", "Tunai & Transfer", "Piutang"
     var selectedTransferAccountCode by remember { mutableStateOf("BCA") } // "BCA", "MANDIRI", "BRI", "BNI", "BANK_LAIN", "GOPAY", "OVO", "DANA", "SHOPEEPAY", "LINKAJA"
+    var selectedCashAccountCode by remember { mutableStateOf("TUNAI") }
+    var metodeUangMuka by remember { mutableStateOf("Tunai") } // "Tunai", "Transfer"
     var nominalTunaiSplitInput by remember { mutableStateOf("") }
     var nominalTransferSplitInput by remember { mutableStateOf("") }
     var calcTargetField by remember { mutableStateOf<String?>(null) } // "nota_total", "custom_total", "dp_money", "split_tunai", "split_transfer", or cart item ID
@@ -133,6 +143,15 @@ fun MenuPenjualanHarianScreen(
     var jatuhTempoInput by remember { mutableStateOf(Formatters.getAddDaysDate(tanggal, 14)) }
     var showNotaDialog by remember { mutableStateOf(false) }
     var showScanReceiptDialog by remember { mutableStateOf(false) }
+
+    androidx.compose.runtime.LaunchedEffect(allCashAccounts) {
+        if (registeredCashAccounts.isNotEmpty() && (selectedCashAccountCode == "TUNAI" || registeredCashAccounts.none { it.type == selectedCashAccountCode })) {
+            selectedCashAccountCode = registeredCashAccounts.first().type
+        }
+        if (registeredTransferAccounts.isNotEmpty() && (selectedTransferAccountCode == "BCA" || registeredTransferAccounts.none { it.type == selectedTransferAccountCode })) {
+            selectedTransferAccountCode = registeredTransferAccounts.first().type
+        }
+    }
 
     val calculatedTotal = remember(salesCart) { salesCart.sumOf { it.jumlahTerjual * it.hargaSatuan } }
     val totalItemCount = remember(salesCart) { salesCart.sumOf { it.jumlahTerjual } }
@@ -454,7 +473,36 @@ fun MenuPenjualanHarianScreen(
                                 )
                             }
 
-                            if (selectedMetodePembayaran == "Transfer") {
+                            if (selectedMetodePembayaran == "Tunai") {
+                                Spacer(modifier = Modifier.height(10.dp))
+                                Text(
+                                    text = "Pilih Akun Kas Tunai Penerima:",
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                                Spacer(modifier = Modifier.height(6.dp))
+
+                                androidx.compose.foundation.lazy.LazyRow(
+                                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    items(registeredCashAccounts) { acc ->
+                                        FilterChip(
+                                            selected = selectedCashAccountCode == acc.type,
+                                            onClick = { selectedCashAccountCode = acc.type },
+                                            label = { Text(acc.name, fontSize = 11.sp) },
+                                            leadingIcon = if (selectedCashAccountCode == acc.type) {
+                                                { Icon(imageVector = Icons.Default.Check, contentDescription = null, modifier = Modifier.size(16.dp)) }
+                                            } else null,
+                                            colors = FilterChipDefaults.filterChipColors(
+                                                selectedContainerColor = Color(0xFFE8F5E9),
+                                                selectedLabelColor = Color(0xFF2E7D32)
+                                            )
+                                        )
+                                    }
+                                }
+                            } else if (selectedMetodePembayaran == "Transfer") {
                                 Spacer(modifier = Modifier.height(10.dp))
                                 Text(
                                     text = "Pilih Rekening Bank / E-Wallet Penerima:",
@@ -473,6 +521,9 @@ fun MenuPenjualanHarianScreen(
                                             selected = selectedTransferAccountCode == acc.type,
                                             onClick = { selectedTransferAccountCode = acc.type },
                                             label = { Text(acc.name, fontSize = 11.sp) },
+                                            leadingIcon = if (selectedTransferAccountCode == acc.type) {
+                                                { Icon(imageVector = Icons.Default.Check, contentDescription = null, modifier = Modifier.size(16.dp)) }
+                                            } else null,
                                             colors = FilterChipDefaults.filterChipColors(
                                                 selectedContainerColor = Color(0xFFE3F2FD),
                                                 selectedLabelColor = Color(0xFF1565C0)
@@ -493,7 +544,32 @@ fun MenuPenjualanHarianScreen(
                                     )
 
                                     Text(
-                                        text = "1. Pilih Rekening Bank / E-Wallet Penerima Transfer:",
+                                        text = "1. Pilih Akun Kas Tunai Penerima:",
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.SemiBold
+                                    )
+                                    androidx.compose.foundation.lazy.LazyRow(
+                                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                        modifier = Modifier.fillMaxWidth()
+                                    ) {
+                                        items(registeredCashAccounts) { acc ->
+                                            FilterChip(
+                                                selected = selectedCashAccountCode == acc.type,
+                                                onClick = { selectedCashAccountCode = acc.type },
+                                                label = { Text(acc.name, fontSize = 11.sp) },
+                                                leadingIcon = if (selectedCashAccountCode == acc.type) {
+                                                    { Icon(imageVector = Icons.Default.Check, contentDescription = null, modifier = Modifier.size(16.dp)) }
+                                                } else null,
+                                                colors = FilterChipDefaults.filterChipColors(
+                                                    selectedContainerColor = Color(0xFFE8F5E9),
+                                                    selectedLabelColor = Color(0xFF2E7D32)
+                                                )
+                                            )
+                                        }
+                                    }
+
+                                    Text(
+                                        text = "2. Pilih Rekening Bank / E-Wallet Penerima Transfer:",
                                         fontSize = 11.sp,
                                         fontWeight = FontWeight.SemiBold
                                     )
@@ -506,6 +582,9 @@ fun MenuPenjualanHarianScreen(
                                                 selected = selectedTransferAccountCode == acc.type,
                                                 onClick = { selectedTransferAccountCode = acc.type },
                                                 label = { Text(acc.name, fontSize = 11.sp) },
+                                                leadingIcon = if (selectedTransferAccountCode == acc.type) {
+                                                    { Icon(imageVector = Icons.Default.Check, contentDescription = null, modifier = Modifier.size(16.dp)) }
+                                                } else null,
                                                 colors = FilterChipDefaults.filterChipColors(
                                                     selectedContainerColor = Color(0xFFE3F2FD),
                                                     selectedLabelColor = Color(0xFF1565C0)
@@ -545,6 +624,33 @@ fun MenuPenjualanHarianScreen(
                                             modifier = Modifier.weight(1f)
                                         )
                                     }
+
+                                    val tSplit = nominalTunaiSplitInput.toDoubleOrNull() ?: 0.0
+                                    val trSplit = nominalTransferSplitInput.toDoubleOrNull() ?: 0.0
+                                    val sumSplit = tSplit + trSplit
+                                    val targetTotal = if (salesCart.isNotEmpty()) calculatedTotal else (customTotalUang.toDoubleOrNull() ?: 0.0)
+                                    val selCashName = registeredCashAccounts.find { it.type == selectedCashAccountCode }?.name ?: selectedCashAccountCode
+                                    val selTrfName = registeredTransferAccounts.find { it.type == selectedTransferAccountCode }?.name ?: selectedTransferAccountCode
+
+                                    Surface(
+                                        color = if (targetTotal > 0 && sumSplit == targetTotal) Color(0xFFE8F5E9) else Color(0xFFFFF3E0),
+                                        shape = RoundedCornerShape(8.dp),
+                                        modifier = Modifier.fillMaxWidth()
+                                    ) {
+                                        Column(modifier = Modifier.padding(10.dp)) {
+                                            Text(
+                                                text = "Masuk $selCashName: ${Formatters.formatRupiah(tSplit)} | Masuk $selTrfName: ${Formatters.formatRupiah(trSplit)}",
+                                                fontSize = 11.sp,
+                                                fontWeight = FontWeight.SemiBold,
+                                                color = if (targetTotal > 0 && sumSplit == targetTotal) Color(0xFF2E7D32) else Color(0xFFE65100)
+                                            )
+                                            Text(
+                                                text = "Total Rincian: ${Formatters.formatRupiah(sumSplit)} (Total Penjualan: ${Formatters.formatRupiah(targetTotal)})",
+                                                fontSize = 11.sp,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                                            )
+                                        }
+                                    }
                                 }
                             }
 
@@ -564,6 +670,76 @@ fun MenuPenjualanHarianScreen(
                                     },
                                     modifier = Modifier.fillMaxWidth()
                                 )
+
+                                val dpVal = nominalUangMukaInput.toDoubleOrNull() ?: 0.0
+                                if (dpVal > 0) {
+                                    Spacer(modifier = Modifier.height(8.dp))
+                                    Text(
+                                        text = "Metode Pembayaran Uang Muka (DP):",
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.SemiBold,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                    Spacer(modifier = Modifier.height(4.dp))
+                                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                        FilterChip(
+                                            selected = metodeUangMuka == "Tunai",
+                                            onClick = { metodeUangMuka = "Tunai" },
+                                            label = { Text("Tunai", fontSize = 11.sp) },
+                                            colors = FilterChipDefaults.filterChipColors(
+                                                selectedContainerColor = Color(0xFFE8F5E9),
+                                                selectedLabelColor = Color(0xFF2E7D32)
+                                            )
+                                        )
+                                        FilterChip(
+                                            selected = metodeUangMuka == "Transfer",
+                                            onClick = { metodeUangMuka = "Transfer" },
+                                            label = { Text("Transfer", fontSize = 11.sp) },
+                                            colors = FilterChipDefaults.filterChipColors(
+                                                selectedContainerColor = Color(0xFFE3F2FD),
+                                                selectedLabelColor = Color(0xFF1565C0)
+                                            )
+                                        )
+                                    }
+                                    Spacer(modifier = Modifier.height(4.dp))
+                                    if (metodeUangMuka == "Transfer") {
+                                        Text("Pilih Bank Penerima DP:", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                        androidx.compose.foundation.lazy.LazyRow(
+                                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                            modifier = Modifier.fillMaxWidth()
+                                        ) {
+                                            items(registeredTransferAccounts) { acc ->
+                                                FilterChip(
+                                                    selected = selectedTransferAccountCode == acc.type,
+                                                    onClick = { selectedTransferAccountCode = acc.type },
+                                                    label = { Text(acc.name, fontSize = 11.sp) },
+                                                    colors = FilterChipDefaults.filterChipColors(
+                                                        selectedContainerColor = Color(0xFFE3F2FD),
+                                                        selectedLabelColor = Color(0xFF1565C0)
+                                                    )
+                                                )
+                                            }
+                                        }
+                                    } else {
+                                        Text("Pilih Kas Tunai Penerima DP:", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                        androidx.compose.foundation.lazy.LazyRow(
+                                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                            modifier = Modifier.fillMaxWidth()
+                                        ) {
+                                            items(registeredCashAccounts) { acc ->
+                                                FilterChip(
+                                                    selected = selectedCashAccountCode == acc.type,
+                                                    onClick = { selectedCashAccountCode = acc.type },
+                                                    label = { Text(acc.name, fontSize = 11.sp) },
+                                                    colors = FilterChipDefaults.filterChipColors(
+                                                        selectedContainerColor = Color(0xFFE8F5E9),
+                                                        selectedLabelColor = Color(0xFF2E7D32)
+                                                    )
+                                                )
+                                            }
+                                        }
+                                    }
+                                }
 
                                 Spacer(modifier = Modifier.height(10.dp))
 
@@ -1222,7 +1398,35 @@ fun MenuPenjualanHarianScreen(
                                 )
                             }
 
-                            if (selectedMetodePembayaran == "Transfer") {
+                            if (selectedMetodePembayaran == "Tunai") {
+                                Spacer(modifier = Modifier.height(8.dp))
+                                Text(
+                                    text = "Pilih Akun Kas Tunai Penerima:",
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Medium,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                                Spacer(modifier = Modifier.height(4.dp))
+                                androidx.compose.foundation.lazy.LazyRow(
+                                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    items(registeredCashAccounts) { acc ->
+                                        FilterChip(
+                                            selected = selectedCashAccountCode == acc.type,
+                                            onClick = { selectedCashAccountCode = acc.type },
+                                            label = { Text(acc.name, fontSize = 11.sp) },
+                                            leadingIcon = if (selectedCashAccountCode == acc.type) {
+                                                { Icon(imageVector = Icons.Default.Check, contentDescription = null, modifier = Modifier.size(16.dp)) }
+                                            } else null,
+                                            colors = FilterChipDefaults.filterChipColors(
+                                                selectedContainerColor = Color(0xFFE8F5E9),
+                                                selectedLabelColor = Color(0xFF2E7D32)
+                                            )
+                                        )
+                                    }
+                                }
+                            } else if (selectedMetodePembayaran == "Transfer") {
                                 Spacer(modifier = Modifier.height(8.dp))
                                 Text(
                                     text = "Pilih Bank / E-Wallet Penerima:",
@@ -1240,6 +1444,9 @@ fun MenuPenjualanHarianScreen(
                                             selected = selectedTransferAccountCode == acc.type,
                                             onClick = { selectedTransferAccountCode = acc.type },
                                             label = { Text(acc.name, fontSize = 11.sp) },
+                                            leadingIcon = if (selectedTransferAccountCode == acc.type) {
+                                                { Icon(imageVector = Icons.Default.Check, contentDescription = null, modifier = Modifier.size(16.dp)) }
+                                            } else null,
                                             colors = FilterChipDefaults.filterChipColors(
                                                 selectedContainerColor = Color(0xFFE3F2FD),
                                                 selectedLabelColor = Color(0xFF1565C0)
@@ -1260,7 +1467,32 @@ fun MenuPenjualanHarianScreen(
                                     )
 
                                     Text(
-                                        text = "1. Pilih Bank / E-Wallet Penerima Transfer:",
+                                        text = "1. Pilih Akun Kas Tunai Penerima:",
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.SemiBold
+                                    )
+                                    androidx.compose.foundation.lazy.LazyRow(
+                                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                        modifier = Modifier.fillMaxWidth()
+                                    ) {
+                                        items(registeredCashAccounts) { acc ->
+                                            FilterChip(
+                                                selected = selectedCashAccountCode == acc.type,
+                                                onClick = { selectedCashAccountCode = acc.type },
+                                                label = { Text(acc.name, fontSize = 11.sp) },
+                                                leadingIcon = if (selectedCashAccountCode == acc.type) {
+                                                    { Icon(imageVector = Icons.Default.Check, contentDescription = null, modifier = Modifier.size(16.dp)) }
+                                                } else null,
+                                                colors = FilterChipDefaults.filterChipColors(
+                                                    selectedContainerColor = Color(0xFFE8F5E9),
+                                                    selectedLabelColor = Color(0xFF2E7D32)
+                                                )
+                                            )
+                                        }
+                                    }
+
+                                    Text(
+                                        text = "2. Pilih Bank / E-Wallet Penerima Transfer:",
                                         fontSize = 11.sp,
                                         fontWeight = FontWeight.SemiBold
                                     )
@@ -1273,6 +1505,9 @@ fun MenuPenjualanHarianScreen(
                                                 selected = selectedTransferAccountCode == acc.type,
                                                 onClick = { selectedTransferAccountCode = acc.type },
                                                 label = { Text(acc.name, fontSize = 11.sp) },
+                                                leadingIcon = if (selectedTransferAccountCode == acc.type) {
+                                                    { Icon(imageVector = Icons.Default.Check, contentDescription = null, modifier = Modifier.size(16.dp)) }
+                                                } else null,
                                                 colors = FilterChipDefaults.filterChipColors(
                                                     selectedContainerColor = Color(0xFFE3F2FD),
                                                     selectedLabelColor = Color(0xFF1565C0)
@@ -1317,6 +1552,8 @@ fun MenuPenjualanHarianScreen(
                                     val trSplit = nominalTransferSplitInput.toDoubleOrNull() ?: 0.0
                                     val sumSplit = tSplit + trSplit
                                     val totalNotaVal = totalUangNotaInput.toDoubleOrNull() ?: 0.0
+                                    val selCashName = registeredCashAccounts.find { it.type == selectedCashAccountCode }?.name ?: selectedCashAccountCode
+                                    val selTrfName = registeredTransferAccounts.find { it.type == selectedTransferAccountCode }?.name ?: selectedTransferAccountCode
 
                                     Surface(
                                         color = if (totalNotaVal > 0 && sumSplit == totalNotaVal) Color(0xFFE8F5E9) else Color(0xFFFFF3E0),
@@ -1325,7 +1562,7 @@ fun MenuPenjualanHarianScreen(
                                     ) {
                                         Column(modifier = Modifier.padding(10.dp)) {
                                             Text(
-                                                text = "Masuk Kas Tunai: ${Formatters.formatRupiah(tSplit)} | Masuk $selectedTransferAccountCode: ${Formatters.formatRupiah(trSplit)}",
+                                                text = "Masuk $selCashName: ${Formatters.formatRupiah(tSplit)} | Masuk $selTrfName: ${Formatters.formatRupiah(trSplit)}",
                                                 fontSize = 11.sp,
                                                 fontWeight = FontWeight.SemiBold,
                                                 color = if (totalNotaVal > 0 && sumSplit == totalNotaVal) Color(0xFF2E7D32) else Color(0xFFE65100)
@@ -1495,9 +1732,10 @@ fun MenuPenjualanHarianScreen(
                                     uangMuka = dpMoney,
                                     jatuhTempo = if (isPiutangPayment) jatuhTempoInput else "",
                                     metodePembayaran = paymentMethodToSave,
-                                    targetAccountCode = if (selectedMetodePembayaran == "Transfer" || selectedMetodePembayaran == "Tunai & Transfer") selectedTransferAccountCode else "TUNAI",
+                                    targetAccountCode = if (selectedMetodePembayaran == "Transfer" || selectedMetodePembayaran == "Tunai & Transfer" || (!isNotaTotalMode && isPiutangPayment && metodeUangMuka == "Transfer")) selectedTransferAccountCode else selectedCashAccountCode,
                                     nominalTunaiSplit = if (selectedMetodePembayaran == "Tunai & Transfer") tunaiSplit else 0.0,
                                     nominalTransferSplit = if (selectedMetodePembayaran == "Tunai & Transfer") transferSplit else 0.0,
+                                    targetTunaiAccountCode = selectedCashAccountCode,
                                     onSuccess = {
                                         totalUangNotaInput = ""
                                         customTotalUang = ""
@@ -1574,7 +1812,9 @@ fun MenuPenjualanHarianScreen(
                             )
                         } else {
                             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                                allSalesTransactions.take(10).forEach { tx ->
+                                allSalesTransactions.forEach { tx ->
+                                    val timeStr = Formatters.formatTimeOnly(tx.timestamp)
+                                    val dateTimeStr = if (timeStr.isNotBlank() && timeStr != "00:00") "${Formatters.formatDateToIndonesian(tx.tanggal)} $timeStr" else Formatters.formatDateToIndonesian(tx.tanggal)
                                     Card(
                                         modifier = Modifier.fillMaxWidth(),
                                         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)),
@@ -1595,7 +1835,7 @@ fun MenuPenjualanHarianScreen(
                                                     color = Color(0xFF2E7D32)
                                                 )
                                                 Text(
-                                                    text = "Tgl: ${Formatters.formatDateToIndonesian(tx.tanggal)} | ${tx.namaToko} | ${tx.metodePembayaran}",
+                                                    text = "Tgl: $dateTimeStr | ${tx.namaToko} | ${tx.metodePembayaran}",
                                                     fontSize = 11.sp,
                                                     color = MaterialTheme.colorScheme.onSurfaceVariant
                                                 )
@@ -1642,7 +1882,15 @@ fun MenuPenjualanHarianScreen(
     salesTransactionToEdit?.let { tx ->
         var totalText by remember(tx) { mutableStateOf(tx.totalUangPenjualan.toLong().toString()) }
         var metodeText by remember(tx) { mutableStateOf(tx.metodePembayaran) }
-        var selectedAccountCode by remember(tx) { mutableStateOf("BCA") }
+        var selectedAccountCode by remember(tx) {
+            mutableStateOf(
+                if (tx.metodePembayaran.contains("Transfer", ignoreCase = true)) {
+                    registeredTransferAccounts.firstOrNull()?.type ?: "BCA"
+                } else {
+                    registeredCashAccounts.firstOrNull()?.type ?: "TUNAI"
+                }
+            )
+        }
         var catatanText by remember(tx) { mutableStateOf(tx.catatan) }
         var tanggalText by remember(tx) { mutableStateOf(tx.tanggal) }
         var namaPelangganText by remember(tx) { mutableStateOf("") }
@@ -2030,14 +2278,42 @@ fun MenuPenjualanHarianScreen(
                         listOf("Tunai", "Transfer", "Piutang").forEach { m ->
                             FilterChip(
                                 selected = metodeText.contains(m, ignoreCase = true),
-                                onClick = { metodeText = m },
+                                onClick = {
+                                    metodeText = m
+                                    if (m == "Tunai") {
+                                        selectedAccountCode = registeredCashAccounts.firstOrNull()?.type ?: "TUNAI"
+                                    } else if (m == "Transfer") {
+                                        selectedAccountCode = registeredTransferAccounts.firstOrNull()?.type ?: "BCA"
+                                    }
+                                },
                                 label = { Text(m, fontSize = 11.sp) }
                             )
                         }
                     }
 
-                    if (metodeText.contains("Transfer", ignoreCase = true)) {
-                        Text("Pilih Bank / E-Wallet Tujuan:", fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                    if (metodeText.contains("Tunai", ignoreCase = true)) {
+                        Text("Pilih Akun Kas Tunai Penerima:", fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                        Row(
+                            modifier = Modifier.horizontalScroll(rememberScrollState()),
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            registeredCashAccounts.forEach { acc ->
+                                FilterChip(
+                                    selected = selectedAccountCode == acc.type,
+                                    onClick = { selectedAccountCode = acc.type },
+                                    label = { Text(acc.name, fontSize = 11.sp) },
+                                    leadingIcon = if (selectedAccountCode == acc.type) {
+                                        { Icon(imageVector = Icons.Default.Check, contentDescription = null, modifier = Modifier.size(16.dp)) }
+                                    } else null,
+                                    colors = FilterChipDefaults.filterChipColors(
+                                        selectedContainerColor = Color(0xFFE8F5E9),
+                                        selectedLabelColor = Color(0xFF2E7D32)
+                                    )
+                                )
+                            }
+                        }
+                    } else if (metodeText.contains("Transfer", ignoreCase = true)) {
+                        Text("Pilih Bank / E-Wallet Penerima:", fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
                         Row(
                             modifier = Modifier.horizontalScroll(rememberScrollState()),
                             horizontalArrangement = Arrangement.spacedBy(6.dp)
@@ -2046,7 +2322,14 @@ fun MenuPenjualanHarianScreen(
                                 FilterChip(
                                     selected = selectedAccountCode == acc.type,
                                     onClick = { selectedAccountCode = acc.type },
-                                    label = { Text(acc.name, fontSize = 11.sp) }
+                                    label = { Text(acc.name, fontSize = 11.sp) },
+                                    leadingIcon = if (selectedAccountCode == acc.type) {
+                                        { Icon(imageVector = Icons.Default.Check, contentDescription = null, modifier = Modifier.size(16.dp)) }
+                                    } else null,
+                                    colors = FilterChipDefaults.filterChipColors(
+                                        selectedContainerColor = Color(0xFFE3F2FD),
+                                        selectedLabelColor = Color(0xFF1565C0)
+                                    )
                                 )
                             }
                         }

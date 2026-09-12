@@ -82,6 +82,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             if (autoBackupMsg != null) {
                 _lastAutoBackupTime.value = com.example.util.AutoBackupManager.getLastBackupTimestamp(application)
             }
+
+            // Ensure all past and current transaction timestamps match their calendar date and time
+            alignExistingRecordTimestamps()
         }
 
         // Proactively keep continuous snapshot synchronized on data changes (with throttle to prevent disk overload)
@@ -94,6 +97,76 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     com.example.util.AppBackupUtils.saveContinuousSnapshot(application, db)
                 }
             }
+        }
+    }
+
+    private suspend fun alignExistingRecordTimestamps() {
+        try {
+            val sales = salesDao.getAllTransactionsList()
+            for (s in sales) {
+                val expectedTs = Formatters.getTimestampForDate(s.tanggal, s.timestamp)
+                if (s.timestamp != expectedTs) {
+                    salesDao.insertTransactionDirect(s.copy(timestamp = expectedTs))
+                }
+            }
+
+            val incoming = incomingDao.getAllTransactionsList()
+            for (inc in incoming) {
+                val expectedTs = Formatters.getTimestampForDate(inc.tanggal, inc.timestamp)
+                if (inc.timestamp != expectedTs) {
+                    incomingDao.insertTransactionDirect(inc.copy(timestamp = expectedTs))
+                }
+            }
+
+            val mutations = cashDao.getAllMutationsList()
+            for (m in mutations) {
+                val expectedTs = Formatters.getTimestampForDate(m.tanggal, m.timestamp)
+                if (m.timestamp != expectedTs) {
+                    cashDao.insertMutationDirect(m.copy(timestamp = expectedTs))
+                }
+            }
+
+            val receivables = customerReceivableDao.getAllReceivablesList()
+            for (r in receivables) {
+                val expectedTs = Formatters.getTimestampForDate(r.tanggal, r.timestamp)
+                if (r.timestamp != expectedTs) {
+                    customerReceivableDao.insertReceivableDirect(r.copy(timestamp = expectedTs))
+                }
+            }
+
+            val customerPayments = customerReceivableDao.getAllCustomerPaymentsList()
+            for (p in customerPayments) {
+                val expectedTs = Formatters.getTimestampForDate(p.tanggal, p.timestamp)
+                if (p.timestamp != expectedTs) {
+                    customerReceivableDao.insertPaymentDirect(p.copy(timestamp = expectedTs))
+                }
+            }
+
+            val payables = supplierPayableDao.getAllPayablesList()
+            for (p in payables) {
+                val expectedTs = Formatters.getTimestampForDate(p.tanggal, p.timestamp)
+                if (p.timestamp != expectedTs) {
+                    supplierPayableDao.insertPayableDirect(p.copy(timestamp = expectedTs))
+                }
+            }
+
+            val supplierPayments = supplierPayableDao.getAllSupplierPaymentsList()
+            for (sp in supplierPayments) {
+                val expectedTs = Formatters.getTimestampForDate(sp.tanggal, sp.timestamp)
+                if (sp.timestamp != expectedTs) {
+                    supplierPayableDao.insertPaymentDirect(sp.copy(timestamp = expectedTs))
+                }
+            }
+
+            val logs = transactionHistoryDao.getAllLogsList()
+            for (log in logs) {
+                val expectedTs = Formatters.getTimestampForDate(log.tanggal, log.timestamp)
+                if (log.timestamp != expectedTs) {
+                    transactionHistoryDao.insertLog(log.copy(timestamp = expectedTs))
+                }
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
         }
     }
 
@@ -407,9 +480,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         )
         val newSaldo = currentAccount.saldo + amount
         cashDao.insertOrUpdateAccount(currentAccount.copy(saldo = newSaldo, lastUpdated = System.currentTimeMillis()))
+        val finalDate = date.ifBlank { Formatters.getCurrentDateFormatted() }
         cashDao.insertMutation(
             CashMutationEntity(
-                tanggal = date.ifBlank { Formatters.getCurrentDateFormatted() },
+                tanggal = finalDate,
+                timestamp = Formatters.getTimestampForDate(finalDate),
                 accountType = accountType,
                 jenis = "MASUK",
                 nominal = amount,
@@ -436,9 +511,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         )
         val newSaldo = currentAccount.saldo - amount
         cashDao.insertOrUpdateAccount(currentAccount.copy(saldo = newSaldo, lastUpdated = System.currentTimeMillis()))
+        val finalDate = date.ifBlank { Formatters.getCurrentDateFormatted() }
         cashDao.insertMutation(
             CashMutationEntity(
-                tanggal = date.ifBlank { Formatters.getCurrentDateFormatted() },
+                tanggal = finalDate,
+                timestamp = Formatters.getTimestampForDate(finalDate),
                 accountType = accountType,
                 jenis = "KELUAR",
                 nominal = amount,
@@ -1220,6 +1297,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         try {
             val log = com.example.data.entity.TransactionHistoryLogEntity(
                 tanggal = date,
+                timestamp = Formatters.getTimestampForDate(date),
                 transactionType = type,
                 transactionId = txId,
                 referenceNumber = ref,
@@ -1320,6 +1398,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         targetAccountCode: String = "BANK",
         nominalTunaiSplit: Double = 0.0,
         nominalTransferSplit: Double = 0.0,
+        targetTunaiAccountCode: String = "TUNAI",
         onSuccess: () -> Unit
     ) {
         val rawCart = _incomingCart.value
@@ -1333,6 +1412,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
                 val transaction = IncomingTransactionEntity(
                     tanggal = tanggal,
+                    timestamp = Formatters.getTimestampForDate(tanggal),
                     namaSupplier = supplierName.trim(),
                     nomorFaktur = fakturNumber.trim(),
                     catatan = catatan.trim(),
@@ -1428,15 +1508,18 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 val accBefore = cashDao.getAccountDirect(primaryAccCode)?.saldo ?: 0.0
 
                 if (statusPembayaran.contains("Tunai & Transfer") || (nominalTunaiSplit > 0 && nominalTransferSplit > 0)) {
+                    val cashAccount = if (targetTunaiAccountCode.isNotBlank()) targetTunaiAccountCode else "TUNAI"
+                    val cashName = com.example.data.entity.CashAccountDefaults.getAccountName(cashAccount)
                     val bankAccount = if (targetAccountCode.isNotBlank() && targetAccountCode != "TUNAI") targetAccountCode else "BANK"
                     val bankName = com.example.data.entity.CashAccountDefaults.getAccountName(bankAccount)
                     if (nominalTunaiSplit > 0) {
                         recordCashOutDirect(
-                            accountType = "TUNAI",
+                            accountType = cashAccount,
                             amount = nominalTunaiSplit,
                             category = "Pembelian Barang (Tunai)",
-                            note = "Barang Masuk #${txId} - Supplier: ${supplierName.trim()} | Faktur: ${fakturNumber.ifBlank { "-" }} (Bagian Tunai)",
-                            date = tanggal
+                            note = "Barang Masuk #${txId} - Supplier: ${supplierName.trim()} | Faktur: ${fakturNumber.ifBlank { "-" }} (Bagian Tunai $cashName)",
+                            date = tanggal,
+                            accountName = cashName
                         )
                     }
                     if (nominalTransferSplit > 0) {
@@ -1445,25 +1528,33 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                             amount = nominalTransferSplit,
                             category = "Pembelian Barang (Transfer)",
                             note = "Barang Masuk #${txId} - Supplier: ${supplierName.trim()} | Faktur: ${fakturNumber.ifBlank { "-" }} (Bagian Transfer $bankName)",
-                            date = tanggal
+                            date = tanggal,
+                            accountName = bankName
                         )
                     }
-                } else if (statusPembayaran == "Tunai") {
+                } else if (statusPembayaran.equals("Tunai", ignoreCase = true)) {
+                    val targetAcc = if (targetTunaiAccountCode.isNotBlank()) targetTunaiAccountCode
+                        else if (targetAccountCode.isNotBlank() && targetAccountCode != "BANK") targetAccountCode
+                        else "TUNAI"
+                    val accName = com.example.data.entity.CashAccountDefaults.getAccountName(targetAcc)
                     recordCashOutDirect(
-                        accountType = "TUNAI",
+                        accountType = targetAcc,
                         amount = totalNilai,
                         category = "Pembelian Barang (Tunai)",
-                        note = "Barang Masuk #${txId} - Supplier: ${supplierName.trim()} | Faktur: ${fakturNumber.ifBlank { "-" }}",
-                        date = tanggal
+                        note = "Barang Masuk #${txId} - Supplier: ${supplierName.trim()} | Faktur: ${fakturNumber.ifBlank { "-" }} ($accName)",
+                        date = tanggal,
+                        accountName = accName
                     )
                 } else if (statusPembayaran.startsWith("Transfer") || statusPembayaran == "Transfer") {
                     val accType = if (targetAccountCode.isNotBlank() && targetAccountCode != "TUNAI") targetAccountCode else "BANK"
+                    val accName = com.example.data.entity.CashAccountDefaults.getAccountName(accType)
                     recordCashOutDirect(
                         accountType = accType,
                         amount = totalNilai,
                         category = "Pembelian Barang (Transfer)",
-                        note = "Barang Masuk #${txId} - Supplier: ${supplierName.trim()} | Faktur: ${fakturNumber.ifBlank { "-" }}",
-                        date = tanggal
+                        note = "Barang Masuk #${txId} - Supplier: ${supplierName.trim()} | Faktur: ${fakturNumber.ifBlank { "-" }} ($accName)",
+                        date = tanggal,
+                        accountName = accName
                     )
                 } else if (statusPembayaran == "Hutang") {
                     val payable = SupplierPayableEntity(
@@ -1471,6 +1562,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         nominalAwal = totalNilai,
                         nominalSisa = totalNilai,
                         tanggal = tanggal,
+                        timestamp = Formatters.getTimestampForDate(tanggal),
                         catatan = "Faktur: ${fakturNumber.ifBlank { "-" }} | ${catatan.ifBlank { "Barang Masuk" }}",
                         status = "Belum Lunas",
                         incomingTransactionId = txId
@@ -1642,6 +1734,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         selectedStore: String = _selectedStoreForSales.value,
         nominalTunaiSplit: Double = 0.0,
         nominalTransferSplit: Double = 0.0,
+        targetTunaiAccountCode: String = "TUNAI",
         onSuccess: () -> Unit
     ) {
         val rawCart = _salesCart.value
@@ -1665,6 +1758,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
                 val transaction = SalesTransactionEntity(
                     tanggal = tanggal,
+                    timestamp = Formatters.getTimestampForDate(tanggal),
                     totalUangPenjualan = finalMoney,
                     totalModal = totalModal,
                     keuntungan = profit,
@@ -1705,45 +1799,59 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         nominalAwal = finalMoney,
                         nominalSisa = sisaPiutang,
                         tanggal = tanggal,
+                        timestamp = Formatters.getTimestampForDate(tanggal),
                         jatuhTempo = jatuhTempo,
                         catatan = "Penjualan $selectedStore Nota #${txId} (${if (catatan.isNotBlank()) catatan.trim() else "Penjualan Rinci"})",
                         status = statusPiutang
                     )
                     val piutangId = customerReceivableDao.insertReceivable(piutangEntity)
                     if (uangMuka > 0) {
-                        val payMethod = if (metodePembayaran.startsWith("Transfer")) "Transfer" else "Tunai"
+                        val isTrf = metodePembayaran.contains("Transfer", ignoreCase = true)
+                        val payMethod = if (isTrf) "Transfer" else "Tunai"
                         val payment = CustomerPaymentEntity(
                             piutangId = piutangId,
                             nominalBayar = uangMuka,
                             tanggal = tanggal,
+                            timestamp = Formatters.getTimestampForDate(tanggal),
                             catatan = "DP Penjualan $selectedStore Nota #${txId}",
                             metodePembayaran = payMethod
                         )
                         customerReceivableDao.insertPayment(payment)
 
-                        val targetAccount = if (metodePembayaran.startsWith("Transfer") || metodePembayaran == "Transfer") {
+                        val targetAccount = if (isTrf) {
                             if (targetAccountCode.isNotBlank() && targetAccountCode != "TUNAI") targetAccountCode else "BANK"
-                        } else "TUNAI"
+                        } else {
+                            if (targetTunaiAccountCode.isNotBlank()) targetTunaiAccountCode
+                            else if (targetAccountCode.isNotBlank() && targetAccountCode != "BANK") targetAccountCode
+                            else "TUNAI"
+                        }
+                        val accName = com.example.data.entity.CashAccountDefaults.getAccountName(targetAccount)
 
                         recordCashInDirect(
                             accountType = targetAccount,
                             amount = uangMuka,
                             category = "DP Penjualan ($selectedStore)",
-                            note = "DP Nota #${txId} - ${namaPelanggan.trim()}",
-                            date = tanggal
+                            note = "DP Nota #${txId} - ${namaPelanggan.trim()} ($accName)",
+                            date = tanggal,
+                            accountName = accName
                         )
                     }
                 } else {
-                    if (metodePembayaran.contains("Tunai & Transfer") || (nominalTunaiSplit > 0 && nominalTransferSplit > 0)) {
+                    if (metodePembayaran.contains("Tunai & Transfer", ignoreCase = true) || (nominalTunaiSplit > 0 && nominalTransferSplit > 0)) {
+                        val cashAccount = if (targetTunaiAccountCode.isNotBlank()) targetTunaiAccountCode else "TUNAI"
+                        val cashName = com.example.data.entity.CashAccountDefaults.getAccountName(cashAccount)
+
                         val bankAccount = if (targetAccountCode.isNotBlank() && targetAccountCode != "TUNAI") targetAccountCode else "BANK"
                         val bankName = com.example.data.entity.CashAccountDefaults.getAccountName(bankAccount)
+
                         if (nominalTunaiSplit > 0) {
                             recordCashInDirect(
-                                accountType = "TUNAI",
+                                accountType = cashAccount,
                                 amount = nominalTunaiSplit,
                                 category = "Penjualan $selectedStore (Tunai)",
-                                note = "Nota #${txId} - $fullCatatan (Bagian Tunai)",
-                                date = tanggal
+                                note = "Nota #${txId} - $fullCatatan (Bagian Tunai $cashName)",
+                                date = tanggal,
+                                accountName = cashName
                             )
                         }
                         if (nominalTransferSplit > 0) {
@@ -1752,21 +1860,35 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                                 amount = nominalTransferSplit,
                                 category = "Penjualan $selectedStore (Transfer)",
                                 note = "Nota #${txId} - $fullCatatan (Bagian Transfer $bankName)",
-                                date = tanggal
+                                date = tanggal,
+                                accountName = bankName
                             )
                         }
-                    } else {
-                        val targetAccount = if (metodePembayaran.startsWith("Transfer") || metodePembayaran == "Transfer") {
-                            if (targetAccountCode.isNotBlank() && targetAccountCode != "TUNAI") targetAccountCode else "BANK"
-                        } else "TUNAI"
-
-                        val categoryLabel = "Penjualan $selectedStore ($metodePembayaran)"
+                    } else if (metodePembayaran.contains("Transfer", ignoreCase = true)) {
+                        val targetAccount = if (targetAccountCode.isNotBlank() && targetAccountCode != "TUNAI") targetAccountCode else "BANK"
+                        val accName = com.example.data.entity.CashAccountDefaults.getAccountName(targetAccount)
+                        val categoryLabel = "Penjualan $selectedStore (Transfer)"
                         recordCashInDirect(
                             accountType = targetAccount,
                             amount = finalMoney,
                             category = categoryLabel,
-                            note = "Nota #${txId} - $fullCatatan",
-                            date = tanggal
+                            note = "Nota #${txId} - $fullCatatan ($accName)",
+                            date = tanggal,
+                            accountName = accName
+                        )
+                    } else {
+                        val targetAccount = if (targetTunaiAccountCode.isNotBlank()) targetTunaiAccountCode
+                            else if (targetAccountCode.isNotBlank() && targetAccountCode != "BANK") targetAccountCode
+                            else "TUNAI"
+                        val accName = com.example.data.entity.CashAccountDefaults.getAccountName(targetAccount)
+                        val categoryLabel = "Penjualan $selectedStore (Tunai)"
+                        recordCashInDirect(
+                            accountType = targetAccount,
+                            amount = finalMoney,
+                            category = categoryLabel,
+                            note = "Nota #${txId} - $fullCatatan ($accName)",
+                            date = tanggal,
+                            accountName = accName
                         )
                     }
                 }
@@ -1841,11 +1963,25 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                                 stokAkhir = totalS,
                                 jenis = "Penjualan Harian",
                                 keterangan = "Penjualan $selectedStore Tgl: $tanggal ${if (namaPelanggan.isNotBlank()) "($namaPelanggan)" else ""}$autoFallbackNote".trim(),
+                                timestamp = Formatters.getTimestampForDate(tanggal),
                                 namaToko = selectedStore
                             )
                         )
                     }
                 }
+
+                val logAccountType = if (isPiutang) "PIUTANG"
+                    else if (metodePembayaran.contains("Tunai & Transfer", ignoreCase = true)) {
+                        val cAcc = if (targetTunaiAccountCode.isNotBlank()) targetTunaiAccountCode else "TUNAI"
+                        val bAcc = if (targetAccountCode.isNotBlank() && targetAccountCode != "TUNAI") targetAccountCode else "BANK"
+                        "$cAcc + $bAcc"
+                    } else if (metodePembayaran.contains("Transfer", ignoreCase = true)) {
+                        if (targetAccountCode.isNotBlank() && targetAccountCode != "TUNAI") targetAccountCode else "BANK"
+                    } else {
+                        if (targetTunaiAccountCode.isNotBlank()) targetTunaiAccountCode
+                        else if (targetAccountCode.isNotBlank() && targetAccountCode != "BANK") targetAccountCode
+                        else "TUNAI"
+                    }
 
                 recordTransactionLogDirect(
                     type = "Penjualan ($selectedStore)",
@@ -1855,7 +1991,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     prevStatus = "Draft",
                     newStatus = if (isPiutang && finalMoney > uangMuka) "Belum Lunas" else "Completed",
                     nominal = finalMoney,
-                    accountType = if (isPiutang) "PIUTANG" else if (metodePembayaran.startsWith("Transfer")) "BANK" else "TUNAI",
+                    accountType = logAccountType,
                     balBefore = 0.0,
                     balAfter = finalMoney,
                     note = "Nota Penjualan #$txId $selectedStore ($metodePembayaran) - $fullCatatan",
@@ -1934,22 +2070,25 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 piutangId = piutangId,
                 nominalBayar = nominalBayar,
                 tanggal = tanggal,
+                timestamp = Formatters.getTimestampForDate(tanggal),
                 catatan = catatan.trim(),
                 metodePembayaran = metodePembayaran
             )
             customerReceivableDao.insertPayment(payment)
 
             val targetAccount = when {
-                metodePembayaran == "Tunai" -> "TUNAI"
-                metodePembayaran == "Transfer" -> "BANK"
-                else -> metodePembayaran
+                metodePembayaran.equals("Tunai", ignoreCase = true) -> "TUNAI"
+                metodePembayaran.equals("Transfer", ignoreCase = true) -> "BANK"
+                else -> metodePembayaran.ifBlank { "TUNAI" }
             }
+            val accName = com.example.data.entity.CashAccountDefaults.getAccountName(targetAccount)
             recordCashInDirect(
                 accountType = targetAccount,
                 amount = nominalBayar,
-                category = "Bayar Piutang (${if (metodePembayaran == "Tunai") "Tunai" else "Transfer/Bank"})",
-                note = "Pelanggan: ${receivable.namaPelanggan} | ${catatan.ifBlank { "Pelunasan Piutang" }}",
-                date = tanggal
+                category = "Bayar Piutang ($accName)",
+                note = "Pelanggan: ${receivable.namaPelanggan} | ${catatan.ifBlank { "Pelunasan Piutang" }} ($accName)",
+                date = tanggal,
+                accountName = accName
             )
         }
     }
@@ -2023,22 +2162,25 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 hutangId = hutangId,
                 nominalBayar = nominalBayar,
                 tanggal = tanggal,
+                timestamp = Formatters.getTimestampForDate(tanggal),
                 catatan = catatan.trim(),
                 metodePembayaran = metodePembayaran
             )
             supplierPayableDao.insertPayment(payment)
 
             val targetAccount = when {
-                metodePembayaran == "Tunai" -> "TUNAI"
-                metodePembayaran == "Transfer" -> "BANK"
-                else -> metodePembayaran
+                metodePembayaran.equals("Tunai", ignoreCase = true) -> "TUNAI"
+                metodePembayaran.equals("Transfer", ignoreCase = true) -> "BANK"
+                else -> metodePembayaran.ifBlank { "TUNAI" }
             }
+            val accName = com.example.data.entity.CashAccountDefaults.getAccountName(targetAccount)
             recordCashOutDirect(
                 accountType = targetAccount,
                 amount = nominalBayar,
-                category = "Bayar Hutang (${if (metodePembayaran == "Tunai") "Tunai" else "Transfer/Bank"})",
-                note = "Supplier: ${payable.namaSupplier} | ${catatan.ifBlank { "Bayar Hutang" }}",
-                date = tanggal
+                category = "Bayar Hutang ($accName)",
+                note = "Supplier: ${payable.namaSupplier} | ${catatan.ifBlank { "Bayar Hutang" }} ($accName)",
+                date = tanggal,
+                accountName = accName
             )
         }
     }
@@ -2174,6 +2316,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 kategori = newKategori,
                 keterangan = newKeterangan,
                 tanggal = newTanggal,
+                timestamp = Formatters.getTimestampForDate(newTanggal, oldMutation.timestamp),
                 saldoSesudah = newSaldo
             )
             cashDao.insertMutationDirect(updatedMutation)
@@ -2453,6 +2596,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         nominalAwal = newTotalUangPenjualan,
                         nominalSisa = newSisa,
                         tanggal = newTanggal,
+                        timestamp = Formatters.getTimestampForDate(newTanggal, matchingReceivable.timestamp),
                         catatan = "Penjualan ${oldTx.namaToko} Nota #${oldTx.id} (${newCatatan.ifBlank { "Diperbarui" }})",
                         status = newStatus
                     )
@@ -2463,6 +2607,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         nominalAwal = newTotalUangPenjualan,
                         nominalSisa = newTotalUangPenjualan,
                         tanggal = newTanggal,
+                        timestamp = Formatters.getTimestampForDate(newTanggal),
                         catatan = "Penjualan ${oldTx.namaToko} Nota #${oldTx.id} (${newCatatan.ifBlank { "Diperbarui" }})",
                         status = if (newTotalUangPenjualan <= 0) "Lunas" else "Belum Lunas"
                     )
@@ -2476,16 +2621,22 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 }
 
                 // Record cash / bank entry if not Piutang
-                val targetAccount = if (newMetodePembayaran == "Tunai") "TUNAI"
-                else if (newTargetAccountCode.isNotBlank()) newTargetAccountCode
-                else "BANK"
+                val targetAccount = if (newMetodePembayaran.contains("Tunai", ignoreCase = true)) {
+                    if (newTargetAccountCode.isNotBlank() && newTargetAccountCode != "BANK") newTargetAccountCode
+                    else "TUNAI"
+                } else {
+                    if (newTargetAccountCode.isNotBlank() && newTargetAccountCode != "TUNAI") newTargetAccountCode
+                    else "BANK"
+                }
+                val accName = com.example.data.entity.CashAccountDefaults.getAccountName(targetAccount)
 
                 recordCashInDirect(
                     accountType = targetAccount,
                     amount = newTotalUangPenjualan,
                     category = "Penjualan ${oldTx.namaToko} ($newMetodePembayaran)",
-                    note = "Nota #${oldTx.id} - ${newCatatan.ifBlank { "Penjualan ${oldTx.namaToko}" }}",
-                    date = newTanggal
+                    note = "Nota #${oldTx.id} - ${newCatatan.ifBlank { "Penjualan ${oldTx.namaToko}" }} ($accName)",
+                    date = newTanggal,
+                    accountName = accName
                 )
             }
 
@@ -2494,6 +2645,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             val newProfit = (newTotalUangPenjualan - calculatedTotalModal).coerceAtLeast(0.0)
             val updatedTx = oldTx.copy(
                 tanggal = newTanggal,
+                timestamp = Formatters.getTimestampForDate(newTanggal, oldTx.timestamp),
                 totalUangPenjualan = newTotalUangPenjualan,
                 totalModal = calculatedTotalModal,
                 keuntungan = newProfit,
@@ -2807,6 +2959,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         nominalAwal = newTotalNilai,
                         nominalSisa = newSisa,
                         tanggal = newTanggal,
+                        timestamp = Formatters.getTimestampForDate(newTanggal, matchingPayable.timestamp),
                         catatan = "Barang Masuk #${oldTx.id} - ${newCatatan.ifBlank { "Diperbarui" }}",
                         status = newStatus
                     )
@@ -2817,6 +2970,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         nominalAwal = newTotalNilai,
                         nominalSisa = newTotalNilai,
                         tanggal = newTanggal,
+                        timestamp = Formatters.getTimestampForDate(newTanggal),
                         catatan = "Barang Masuk #${oldTx.id} - ${newCatatan.ifBlank { "Diperbarui" }}",
                         status = if (newTotalNilai <= 0) "Lunas" else "Belum Lunas"
                     )
@@ -2828,16 +2982,22 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     supplierPayableDao.deletePayable(matchingPayable.id)
                 }
 
-                val targetAccount = if (newStatusPembayaran == "Tunai") "TUNAI"
-                else if (newTargetAccountCode.isNotBlank()) newTargetAccountCode
-                else "BANK"
+                val targetAccount = if (newStatusPembayaran.contains("Tunai", ignoreCase = true)) {
+                    if (newTargetAccountCode.isNotBlank() && newTargetAccountCode != "BANK") newTargetAccountCode
+                    else "TUNAI"
+                } else {
+                    if (newTargetAccountCode.isNotBlank() && newTargetAccountCode != "TUNAI") newTargetAccountCode
+                    else "BANK"
+                }
+                val accName = com.example.data.entity.CashAccountDefaults.getAccountName(targetAccount)
 
                 recordCashOutDirect(
                     accountType = targetAccount,
                     amount = newTotalNilai,
                     category = "Pembelian Barang Masuk",
-                    note = "Barang Masuk #${oldTx.id} (${newSupplier.ifBlank { "Supplier Umum" }}) - ${newCatatan.ifBlank { "Pembelian Barang" }}",
-                    date = newTanggal
+                    note = "Barang Masuk #${oldTx.id} (${newSupplier.ifBlank { "Supplier Umum" }}) - ${newCatatan.ifBlank { "Pembelian Barang" }} ($accName)",
+                    date = newTanggal,
+                    accountName = accName
                 )
             }
 
@@ -2847,6 +3007,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 namaSupplier = newSupplier,
                 nomorFaktur = if (newFakturNumber.isNotBlank()) newFakturNumber else oldTx.nomorFaktur,
                 tanggal = newTanggal,
+                timestamp = Formatters.getTimestampForDate(newTanggal, oldTx.timestamp),
                 totalNilai = newTotalNilai,
                 totalItem = newTotalItem,
                 statusPembayaran = newStatusPembayaran,

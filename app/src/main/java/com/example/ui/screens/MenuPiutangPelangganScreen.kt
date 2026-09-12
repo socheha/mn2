@@ -739,8 +739,10 @@ fun MenuPiutangPelangganScreen(
                                                 color = Color(0xFF2E7D32),
                                                 fontSize = 14.sp
                                             )
+                                            val payTime = Formatters.formatTimeOnly(payment.timestamp)
+                                            val payDateTime = if (payTime.isNotBlank() && payTime != "00:00") "${Formatters.formatDateToIndonesian(payment.tanggal)} $payTime" else Formatters.formatDateToIndonesian(payment.tanggal)
                                             Text(
-                                                text = "Tgl: ${Formatters.formatDateToIndonesian(payment.tanggal)} | Akun: ${payment.metodePembayaran}",
+                                                text = "Tgl: $payDateTime | Akun: ${payment.metodePembayaran}",
                                                 fontSize = 11.sp,
                                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                                             )
@@ -841,8 +843,10 @@ fun ReceivableCard(
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
+                    val recTime = Formatters.formatTimeOnly(receivable.timestamp)
+                    val recDateTime = if (recTime.isNotBlank() && recTime != "00:00") "${Formatters.formatDateToIndonesian(receivable.tanggal)} $recTime" else Formatters.formatDateToIndonesian(receivable.tanggal)
                     Text(
-                        text = "Tgl Transaksi: ${Formatters.formatDateToIndonesian(receivable.tanggal)}",
+                        text = "Tgl Transaksi: $recDateTime",
                         fontSize = 11.sp,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -1247,22 +1251,38 @@ fun PaymentDialog(
                 )
 
                 androidx.compose.foundation.lazy.LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    item {
-                        FilterChip(
-                            selected = metodePembayaran == "TUNAI" || metodePembayaran == "Tunai",
-                            onClick = { metodePembayaran = "TUNAI" },
-                            label = { Text("Kas Tunai", fontSize = 11.sp) },
-                            colors = FilterChipDefaults.filterChipColors(
-                                selectedContainerColor = Color(0xFFE8F5E9),
-                                selectedLabelColor = Color(0xFF2E7D32)
+                    val cashAccounts = allAccounts.filter { com.example.data.entity.CashAccountDefaults.getAccountCategory(it.accountType) == "TUNAI" }
+                    if (cashAccounts.isEmpty()) {
+                        item {
+                            FilterChip(
+                                selected = metodePembayaran == "TUNAI" || metodePembayaran == "Tunai",
+                                onClick = { metodePembayaran = "TUNAI" },
+                                label = { Text("Kas Tunai", fontSize = 11.sp) },
+                                colors = FilterChipDefaults.filterChipColors(
+                                    selectedContainerColor = Color(0xFFE8F5E9),
+                                    selectedLabelColor = Color(0xFF2E7D32)
+                                )
                             )
-                        )
+                        }
+                    } else {
+                        items(cashAccounts, key = { it.accountType }) { acc ->
+                            FilterChip(
+                                selected = metodePembayaran == acc.accountType,
+                                onClick = { metodePembayaran = acc.accountType },
+                                label = { Text("${acc.accountName} (${Formatters.formatRupiah(acc.saldo)})", fontSize = 11.sp) },
+                                colors = FilterChipDefaults.filterChipColors(
+                                    selectedContainerColor = Color(0xFFE8F5E9),
+                                    selectedLabelColor = Color(0xFF2E7D32)
+                                )
+                            )
+                        }
                     }
-                    items(allAccounts.filter { it.accountType != "TUNAI" }, key = { it.accountType }) { acc ->
+                    val transferAccounts = allAccounts.filter { com.example.data.entity.CashAccountDefaults.getAccountCategory(it.accountType) != "TUNAI" }
+                    items(transferAccounts, key = { it.accountType }) { acc ->
                         FilterChip(
                             selected = metodePembayaran == acc.accountType,
                             onClick = { metodePembayaran = acc.accountType },
-                            label = { Text(acc.accountName, fontSize = 11.sp) },
+                            label = { Text("${acc.accountName} (${Formatters.formatRupiah(acc.saldo)})", fontSize = 11.sp) },
                             colors = FilterChipDefaults.filterChipColors(
                                 selectedContainerColor = Color(0xFFE3F2FD),
                                 selectedLabelColor = Color(0xFF1565C0)

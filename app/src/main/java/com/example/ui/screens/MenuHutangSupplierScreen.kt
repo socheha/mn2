@@ -524,8 +524,10 @@ fun MenuHutangSupplierScreen(
                                                 color = Color(0xFFD32F2F),
                                                 fontSize = 14.sp
                                             )
+                                            val payTime = Formatters.formatTimeOnly(payment.timestamp)
+                                            val payDateTime = if (payTime.isNotBlank() && payTime != "00:00") "${Formatters.formatDateToIndonesian(payment.tanggal)} $payTime" else Formatters.formatDateToIndonesian(payment.tanggal)
                                             Text(
-                                                text = "Tgl: ${Formatters.formatDateToIndonesian(payment.tanggal)} | Akun: ${payment.metodePembayaran}",
+                                                text = "Tgl: $payDateTime | Akun: ${payment.metodePembayaran}",
                                                 fontSize = 11.sp,
                                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                                             )
@@ -616,8 +618,10 @@ fun PayableCard(
                         fontWeight = FontWeight.Bold,
                         fontSize = 15.sp
                     )
+                    val payTime = Formatters.formatTimeOnly(payable.timestamp)
+                    val payDateTime = if (payTime.isNotBlank() && payTime != "00:00") "${Formatters.formatDateToIndonesian(payable.tanggal)} $payTime" else Formatters.formatDateToIndonesian(payable.tanggal)
                     Text(
-                        text = "Tgl Masuk: ${Formatters.formatDateToIndonesian(payable.tanggal)}",
+                        text = "Tgl Masuk: $payDateTime",
                         fontSize = 11.sp,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )

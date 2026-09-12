@@ -22,10 +22,10 @@ interface IncomingDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     fun insertItemDirect(item: IncomingItemEntity)
 
-    @Query("SELECT * FROM incoming_transactions ORDER BY timestamp DESC")
+    @Query("SELECT * FROM incoming_transactions ORDER BY tanggal DESC, timestamp DESC, id DESC")
     fun getAllTransactions(): Flow<List<IncomingTransactionEntity>>
 
-    @Query("SELECT * FROM incoming_transactions ORDER BY timestamp DESC")
+    @Query("SELECT * FROM incoming_transactions ORDER BY tanggal DESC, timestamp DESC, id DESC")
     suspend fun getAllTransactionsList(): List<IncomingTransactionEntity>
 
     @Query("SELECT * FROM incoming_items WHERE transactionId = :transactionId")
